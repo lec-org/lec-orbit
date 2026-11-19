@@ -1,0 +1,48 @@
+{
+  "name": "@lec-orbit/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Orbit（伴程）— LEC 工作室统一桌面工作台与 LecSSO 原生桌面认证器",
+  "author": "LEC Software Studio",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "preview": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "test": "bun test test/",
+    "bundle:doc": "node scripts/bundle-lec-doc.mjs",
+    "pack:dir": "bun run bundle:doc && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "package:mac": "bun run bundle:doc && bun run build && electron-builder --mac dmg zip --arm64 --x64 --publish never",
+    "package:win": "bun run bundle:doc && bun run build && electron-builder --win nsis --x64 --publish never"
+  },
+  "trustedDependencies": [
+    "electron",
+    "electron-winstaller"
+  ],
+  "overrides": {
+    "csstype": "3.2.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "@lec-space/icons": "file:../../packages/icons",
+    "@lec-space/liquidglass": "file:../../packages/liquidglass",
+    "@types/node": "^22.15.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "axios": "^1.13.2",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "^6.0.0",
+    "lucide-react": "^1.7.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.7",
+    "zod": "^3.24.2",
+    "zustand": "^5.0.3"
+  }
+}

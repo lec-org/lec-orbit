@@ -1,0 +1,71 @@
+/* Orbit（伴程）全局视觉基线：Apple HIG 排版、液态玻璃柔和画布与跨平台拖拽区。 */
+:root {
+  color-scheme: light dark;
+  --orbit-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+  --orbit-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --orbit-bg: radial-gradient(circle at 12% 10%, rgba(56, 139, 253, 0.14), transparent 42%),
+    radial-gradient(circle at 86% 18%, rgba(168, 85, 247, 0.12), transparent 38%),
+    linear-gradient(180deg, #f3f6fb 0%, #eaf0f8 100%);
+  --orbit-surface: rgba(255, 255, 255, 0.72);
+  --orbit-surface-strong: rgba(255, 255, 255, 0.88);
+  --orbit-sidebar-bg: rgba(246, 248, 252, 0.68);
+  --orbit-border: rgba(15, 23, 42, 0.08);
+  --orbit-text: #0f172a;
+  --orbit-text-muted: #64748b;
+  --orbit-accent: #0a84ff;
+  --orbit-success: #16a34a;
+  --orbit-warning: #d97706;
+  --orbit-danger: #dc2626;
+}
+
+[data-theme="dark"] {
+  --orbit-bg: radial-gradient(circle at 14% 12%, rgba(56, 139, 253, 0.2), transparent 45%),
+    radial-gradient(circle at 84% 20%, rgba(139, 92, 246, 0.16), transparent 40%),
+    linear-gradient(180deg, #0d1117 0%, #131924 100%);
+  --orbit-surface: rgba(22, 27, 38, 0.72);
+  --orbit-surface-strong: rgba(28, 35, 49, 0.88);
+  --orbit-sidebar-bg: rgba(16, 21, 31, 0.76);
+  --orbit-border: rgba(255, 255, 255, 0.1);
+  --orbit-text: #f1f5f9;
+  --orbit-text-muted: #94a3b8;
+  --orbit-accent: #3898ff;
+  --orbit-success: #22c55e;
+  --orbit-warning: #f59e0b;
+  --orbit-danger: #f87171;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--orbit-font);
+  color: var(--orbit-text);
+  background: var(--orbit-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root > * {
+  width: 100%;
+  height: 100%;
+}
+
+.orbit-drag {
+  -webkit-app-region: drag;
+}
+
+.orbit-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.orbit-floating-transparent,
+.orbit-floating-transparent #root {
+  background: transparent !important;
+}

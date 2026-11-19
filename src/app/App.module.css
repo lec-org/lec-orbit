@@ -1,0 +1,360 @@
+.shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px 12px 14px;
+  border-right: 1px solid var(--orbit-border);
+  background: var(--orbit-sidebar-bg);
+  backdrop-filter: blur(28px) saturate(160%);
+  user-select: none;
+  overflow: visible;
+  z-index: 20;
+}
+
+.sidebarMac {
+  padding-top: 42px;
+}
+
+.topBar {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.avatarTrigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--orbit-border);
+  border-radius: 13px;
+  background: var(--orbit-surface);
+  color: var(--orbit-text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.avatarTrigger:hover,
+.avatarTriggerOpen {
+  background: var(--orbit-surface-strong);
+  border-color: rgba(10, 132, 255, 0.32);
+}
+
+.avatarWrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.presenceDot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #94a3b8;
+  border: 2px solid var(--orbit-surface-strong);
+}
+
+.presenceDotActive {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+}
+
+.profileInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.profileName {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profileRole {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.profilePopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 268px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+  backdrop-filter: blur(28px) saturate(180%);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 60;
+}
+
+.popoverHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.popoverIdentity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.popoverNameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.popoverName {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.popoverHandle {
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popoverStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.popoverStatItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popoverStatLabel {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.popoverStatValue {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.popoverDivider {
+  height: 1px;
+  background: var(--orbit-border);
+}
+
+.popoverActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.popoverActionBtn {
+  width: 100%;
+  justify-content: center;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--orbit-text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.navItem:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.navItemActive {
+  background: rgba(10, 132, 255, 0.14);
+  color: var(--orbit-accent);
+  font-weight: 600;
+}
+
+.navIcon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.navLabel {
+  flex: 1;
+  text-align: left;
+}
+
+.content {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.loadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 14px;
+  color: var(--orbit-text-muted);
+}
+
+.updateCard {
+  margin-top: auto;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: rgba(10, 132, 255, 0.1);
+  border: 1px solid rgba(10, 132, 255, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.updateCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.updateCardTitle {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--orbit-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.updateDismissBtn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.updateDismissBtn:hover {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--orbit-text);
+}
+
+.updateProgressTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+  overflow: hidden;
+}
+
+.updateProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--orbit-accent);
+  transition: width 180ms ease;
+}
+
+.updateCardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.updatePrimaryBtn {
+  flex: 1;
+}
+
+.updatePctText {
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.updateDialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.updateNotesBox {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.updateDialogProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.updateDialogFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.updateDialogFooterRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

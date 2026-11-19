@@ -1,0 +1,43 @@
+appId: top.lecspace.orbit
+productName: Orbit
+copyright: Copyright © LEC Software Studio
+asar: true
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: resources/lec-doc-dist
+    to: lec-doc-dist
+    filter:
+      - '**/*'
+  - from: resources/icons
+    to: icons
+    filter:
+      - '**/*'
+protocols:
+  - name: Orbit Auth Protocol
+    schemes:
+      - lec-orbit
+publish:
+  provider: github
+  owner: lec-org
+  repo: lec-orbit
+mac:
+  icon: build/icon.icns
+  artifactName: Orbit-${version}-mac-${arch}.${ext}
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+win:
+  icon: build/icon.ico
+  artifactName: Orbit-${version}-win-${arch}-Setup.${ext}
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

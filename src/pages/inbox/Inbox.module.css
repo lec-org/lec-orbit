@@ -1,0 +1,563 @@
+.splitPage {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.channelRail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  padding: 18px 12px 16px;
+  border-right: 1px solid var(--orbit-border);
+  background: rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(20px);
+  overflow-y: auto;
+  user-select: none;
+}
+
+:global([data-theme='dark']) .channelRail {
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.railHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+}
+
+.railTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.railGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.railGroupLabel {
+  padding: 0 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--orbit-text-muted);
+}
+
+.channelItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--orbit-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.channelItem:hover {
+  background: rgba(148, 163, 184, 0.13);
+}
+
+.channelItemActive {
+  background: var(--orbit-surface-strong);
+  border-color: rgba(10, 132, 255, 0.25);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.appIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.appIconLg {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+.appIconSm {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  margin-top: 2px;
+}
+
+.iconAll {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+
+.iconAnn {
+  background: linear-gradient(135deg, #f59e0b, #ea580c);
+}
+
+.iconDoc {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+}
+
+.iconPunch {
+  background: linear-gradient(135deg, #22c55e, #059669);
+}
+
+.iconDrive {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+}
+
+.iconOj {
+  background: linear-gradient(135deg, #a855f7, #7c3aed);
+}
+
+.iconSso {
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
+}
+
+.iconOrbit {
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.channelText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.channelName {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channelSub {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mainPane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.paneHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--orbit-border);
+}
+
+.paneTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.subheading {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.unreadToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
+.paneBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.feedCard {
+  padding: 6px 16px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--orbit-border);
+}
+
+.item:last-child {
+  border-bottom: none;
+}
+
+.itemLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.itemMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.itemHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.itemTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.itemBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--orbit-text-muted);
+}
+
+.itemTime {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.itemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.annList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.annCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.annTop {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.annTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--orbit-accent);
+  flex-shrink: 0;
+}
+
+.annTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.annExcerpt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--orbit-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.annFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--orbit-border);
+}
+
+.annAuthor {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
+.dotSep {
+  opacity: 0.5;
+}
+
+.annFooterRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.receiptPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 132, 255, 0.28);
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--orbit-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.receiptPill:hover {
+  background: rgba(10, 132, 255, 0.16);
+}
+
+.annDetailWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.annDetailFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--orbit-border);
+}
+
+.richContent {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--orbit-text);
+  word-break: break-word;
+}
+
+.richContent h2 {
+  font-size: 18px;
+  margin: 12px 0 6px;
+}
+
+.richContent blockquote {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--orbit-accent);
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 0 8px 8px 0;
+}
+
+.richContent pre {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.08);
+  font-family: var(--orbit-mono);
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.richContent img {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 8px 0;
+}
+
+.receiptLoading {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--orbit-text-muted);
+}
+
+.receiptModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.receiptToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.receiptList {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.receiptRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.receiptUserInfo {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.receiptUserName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.receiptUserHandle {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.receiptTime {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.editorWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editorToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+}
+
+.toolBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--orbit-text);
+  cursor: pointer;
+}
+
+.toolBtn:hover {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.pinSwitch {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
+.editorSurface {
+  min-height: 220px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  outline: none;
+}
+
+.editorSurface:focus {
+  border-color: var(--orbit-accent);
+}
+
+.editorFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -1,0 +1,35 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.viewport {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--orbit-text-muted);
+}
+
+.placeholderTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.placeholderSub {
+  margin: 0;
+  font-size: 13px;
+}

@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+release/
+resources/lec-doc-dist/
+server/orbit-server
+server/*.exe
+*.log
+.DS_Store
