@@ -146,7 +146,7 @@ func corsMiddleware() gin.HandlerFunc {
 
 func (s *Server) requireInternalToken() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if s.cfg.InternalServiceToken == "" {
+		if s.cfg.InternalServiceToken == "" && s.cfg.LecDocInternalToken == "" {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "内部事件总线令牌尚未配置"})
 			return
 		}
@@ -157,7 +157,18 @@ func (s *Server) requireInternalToken() gin.HandlerFunc {
 		if got == "" {
 			got = strings.TrimSpace(c.Query("token"))
 		}
-		if subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.InternalServiceToken)) != 1 {
+		matched := false
+		if s.cfg.InternalServiceToken != "" &&
+			subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.InternalServiceToken)) == 1 {
+			matched = true
+		}
+		// 兼容 LecDoc 双向共享的内部服务令牌（仅限 doc-requests 回调）
+		if !matched && s.cfg.LecDocInternalToken != "" &&
+			strings.HasSuffix(c.FullPath(), "/doc-requests") &&
+			subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.LecDocInternalToken)) == 1 {
+			matched = true
+		}
+		if !matched {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "无效的内部服务令牌"})
 			return
 		}
