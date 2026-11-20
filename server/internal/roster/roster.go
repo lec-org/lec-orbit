@@ -191,25 +191,35 @@ func (s *Service) SyncFromLecSSO(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	endpoint := fmt.Sprintf("%s/api/organizations/%s/users?page=1&page_size=200", s.cfg.SSOEendpoint, url.PathEscape(s.cfg.SSOOrgID))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("拉取 LecSSO 组织成员失败（HTTP %d）: %s", resp.StatusCode, string(body))
-	}
+	const pageSize = 100
 	var users []logtoOrgUser
-	if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
-		return err
+	for page := 1; page <= 20; page++ {
+		endpoint := fmt.Sprintf("%s/api/organizations/%s/users?page=%d&page_size=%d", s.cfg.SSOEendpoint, url.PathEscape(s.cfg.SSOOrgID), page, pageSize)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			return fmt.Errorf("拉取 LecSSO 组织成员失败（HTTP %d）: %s", resp.StatusCode, string(body))
+		}
+		var batch []logtoOrgUser
+		decodeErr := json.NewDecoder(resp.Body).Decode(&batch)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return decodeErr
+		}
+		users = append(users, batch...)
+		if len(batch) < pageSize {
+			break
+		}
 	}
 	activeIDs := make([]string, 0, len(users))
 	now := time.Now().UTC()
