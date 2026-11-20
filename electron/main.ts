@@ -1,5 +1,5 @@
 /** Orbit（伴程）Electron 主进程入口：单实例锁、协议注册、三层存储、窗口管理与 IPC 编排。 */
-import { app, clipboard, dialog, ipcMain, nativeImage, Notification, session, shell, systemPreferences } from 'electron';
+import { app, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -324,15 +324,77 @@ app.on('activate', () => {
 });
 
 app.whenReady().then(async () => {
-  // macOS Dock 图标（开发态与打包态均显示全新 3D Orbit 图标，符合 Apple HIG 留白规范）
-  if (process.platform === 'darwin' && app.dock) {
-    const dockIconPath = resolveAppIconPath('dock-icon.png') ?? resolveAppIconPath('icon.png');
-    if (dockIconPath) {
-      const dockImage = nativeImage.createFromPath(dockIconPath);
-      if (!dockImage.isEmpty()) {
-        app.dock.setIcon(dockImage);
+  // macOS Dock 图标与原生应用菜单栏（保证 Dock 图标常驻、Cmd+Tab 可见、聚焦窗口时左上角显示 Orbit）
+  if (process.platform === 'darwin') {
+    if (app.dock) {
+      const dockIconPath = resolveAppIconPath('dock-icon.png') ?? resolveAppIconPath('icon.png');
+      if (dockIconPath) {
+        const dockImage = nativeImage.createFromPath(dockIconPath);
+        if (!dockImage.isEmpty()) {
+          app.dock.setIcon(dockImage);
+        }
       }
+      void app.dock.show();
     }
+    const macMenu = Menu.buildFromTemplate([
+      {
+        label: 'Orbit',
+        submenu: [
+          { role: 'about', label: '关于 Orbit' },
+          { type: 'separator' },
+          { role: 'services', label: '服务' },
+          { type: 'separator' },
+          { role: 'hide', label: '隐藏 Orbit' },
+          { role: 'hideOthers', label: '隐藏其他' },
+          { role: 'unhide', label: '全部显示' },
+          { type: 'separator' },
+          {
+            label: '退出 Orbit',
+            accelerator: 'Command+Q',
+            click: () => {
+              windowManager?.markQuitting();
+              app.quit();
+            },
+          },
+        ],
+      },
+      {
+        label: '编辑',
+        submenu: [
+          { role: 'undo', label: '撤销' },
+          { role: 'redo', label: '重做' },
+          { type: 'separator' },
+          { role: 'cut', label: '剪切' },
+          { role: 'copy', label: '复制' },
+          { role: 'paste', label: '粘贴' },
+          { role: 'selectAll', label: '全选' },
+        ],
+      },
+      {
+        label: '视图',
+        submenu: [
+          { role: 'reload', label: '重新加载' },
+          { role: 'forceReload', label: '强制重新加载' },
+          { type: 'separator' },
+          { role: 'resetZoom', label: '实际大小' },
+          { role: 'zoomIn', label: '放大' },
+          { role: 'zoomOut', label: '缩小' },
+          { type: 'separator' },
+          { role: 'togglefullscreen', label: '进入全屏幕' },
+        ],
+      },
+      {
+        label: '窗口',
+        submenu: [
+          { role: 'minimize', label: '最小化' },
+          { role: 'zoom', label: '缩放' },
+          { type: 'separator' },
+          { role: 'front', label: '前置全部窗口' },
+          { role: 'close', label: '关闭窗口' },
+        ],
+      },
+    ]);
+    Menu.setApplicationMenu(macMenu);
   }
 
   // 按环境配置渲染进程 CSP：放行 blob:（卡牌鉴权图片）与 orbit.lecspace.top（Go 后端与 WS）

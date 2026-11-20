@@ -305,7 +305,7 @@ export function SettingsPage(): JSX.Element {
           <div className={styles.settingRow}>
             <div>
               <div className={styles.settingTitle}>桌面打卡悬浮球</div>
-              <div className={styles.settingDesc}>置顶悬浮显示专注计时环，支持拖拽吸边与一键签到/签退</div>
+              <div className={styles.settingDesc}>应用退至后台、最小化或隐藏至托盘时自动浮现，回到主窗自动收起</div>
             </div>
             <Switch
               checked={config.floatingBallEnabled}

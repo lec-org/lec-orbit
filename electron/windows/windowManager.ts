@@ -30,6 +30,7 @@ import {
 
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
+  private mainWindowReady = false;
   private approveWindow: BrowserWindow | null = null;
   private floatingWindow: BrowserWindow | null = null;
   private floatingExpanded = false;
@@ -320,13 +321,24 @@ export class WindowManager {
     });
 
     this.mainWindow = win;
+    this.mainWindowReady = false;
 
     win.once('ready-to-show', () => {
+      this.mainWindowReady = true;
       if (safeBounds.isMaximized) win.maximize();
       win.show();
       app.focus({ steal: true });
       win.focus();
+      this.syncFloatingBallVisibility();
     });
+
+    const syncFloating = () => this.syncFloatingBallVisibility();
+    win.on('focus', syncFloating);
+    win.on('blur', syncFloating);
+    win.on('minimize', syncFloating);
+    win.on('restore', syncFloating);
+    win.on('show', syncFloating);
+    win.on('hide', syncFloating);
 
     const scheduleSaveBounds = () => {
       if (this.boundsSaveTimer) clearTimeout(this.boundsSaveTimer);
@@ -367,6 +379,8 @@ export class WindowManager {
       nativeTheme.off('updated', onNativeThemeUpdated);
       this.destroyDocView(false);
       this.mainWindow = null;
+      this.mainWindowReady = false;
+      this.syncFloatingBallVisibility();
     });
 
     // 主渲染层刷新（如 Shift+F5 / Cmd+R）或重载前，必须主动收起原生 WebContentsView，
@@ -765,9 +779,37 @@ export class WindowManager {
     this.emitFloatingState();
   }
 
+  private shouldShowFloatingBall(): boolean {
+    if (this.isQuitting || !this.configStore.get().floatingBallEnabled) return false;
+    const main = this.mainWindow;
+    if (main && !main.isDestroyed()) {
+      // 主窗尚未首次就绪前暂不闪现悬浮球
+      if (!this.mainWindowReady) return false;
+      // 主窗位于前台聚焦时自动收起悬浮球；切到后台 / 最小化 / 隐藏托盘时自动显示
+      const mainInForeground = main.isVisible() && !main.isMinimized() && main.isFocused();
+      return !mainInForeground;
+    }
+    return true;
+  }
+
+  syncFloatingBallVisibility(): void {
+    if (!this.configStore.get().floatingBallEnabled) {
+      this.destroyFloatingBallWindow();
+      return;
+    }
+    if (this.shouldShowFloatingBall()) {
+      this.ensureFloatingBallWindow();
+    } else if (this.floatingWindow && !this.floatingWindow.isDestroyed()) {
+      if (this.floatingExpanded) {
+        this.setFloatingBallExpanded(false);
+      }
+      this.floatingWindow.hide();
+    }
+  }
+
   syncFloatingBallEnabled(enabled: boolean): void {
     if (enabled) {
-      this.ensureFloatingBallWindow();
+      this.syncFloatingBallVisibility();
     } else {
       this.destroyFloatingBallWindow();
     }
@@ -828,7 +870,9 @@ export class WindowManager {
 
     win.setAlwaysOnTop(true, 'floating');
     if (process.platform === 'darwin') {
-      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      // 禁止传 visibleOnFullScreen: true：Electron 会将整个进程切为 UIElement/Accessory 模式，
+      // 导致 macOS Dock 图标消失、Cmd+Tab 不可见且聚焦窗口时左上角菜单栏不显示 Orbit。
+      win.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true });
     }
 
     this.floatingWindow = win;
@@ -839,7 +883,9 @@ export class WindowManager {
     }
 
     win.once('ready-to-show', () => {
-      win.showInactive();
+      if (this.shouldShowFloatingBall()) {
+        win.showInactive();
+      }
       this.emitFloatingState();
     });
     win.on('closed', () => {
