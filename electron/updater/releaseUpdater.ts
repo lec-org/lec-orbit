@@ -10,16 +10,19 @@ import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-update
 import fs from 'node:fs';
 import path from 'node:path';
 import type { UpdateCheckResult } from '../../src/shared/ipc';
+import {
+  compareSemver,
+  parseLatestManifestYaml,
+  type ParsedLatestManifest,
+  type ReleaseAssetInfo,
+} from './manifest';
 
 const GITHUB_REPO = process.env.ORBIT_UPDATE_GITHUB_REPO?.trim() || 'lec-org/lec-orbit';
 const LATEST_RELEASE_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const LATEST_RELEASE_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
+const LATEST_DOWNLOAD_BASE = `https://github.com/${GITHUB_REPO}/releases/latest/download`;
 
-interface GitHubAsset {
-  name: string;
-  browser_download_url: string;
-  size: number;
-}
+type GitHubAsset = ReleaseAssetInfo;
 
 interface GitHubReleasePayload {
   tag_name?: string;
@@ -32,14 +35,7 @@ interface GitHubReleasePayload {
   assets?: GitHubAsset[];
 }
 
-export function compareSemver(a: string, b: string): number {
-  const pa = a.replace(/^v/i, '').split(/[-+]/)[0]!.split('.').map((n) => Number(n) || 0);
-  const pb = b.replace(/^v/i, '').split(/[-+]/)[0]!.split('.').map((n) => Number(n) || 0);
-  for (let i = 0; i < 3; i += 1) {
-    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0) ? 1 : -1;
-  }
-  return 0;
-}
+export { compareSemver, parseLatestManifestYaml };
 
 function pickPlatformAsset(assets: GitHubAsset[] | undefined): GitHubAsset | null {
   if (!assets || assets.length === 0) return null;
@@ -189,19 +185,57 @@ export class OrbitUpdater {
     });
   }
 
-  private async fetchGitHubLatestRelease(): Promise<GitHubReleasePayload | null> {
+  private async fetchManifestLatestRelease(): Promise<ParsedLatestManifest | null> {
+    const manifestName =
+      process.platform === 'darwin'
+        ? 'latest-mac.yml'
+        : process.platform === 'win32'
+          ? 'latest.yml'
+          : 'latest-linux.yml';
+    const res = await net.fetch(`${LATEST_DOWNLOAD_BASE}/${manifestName}`, {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': `Orbit-Desktop/${app.getVersion()}`,
+      },
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return parseLatestManifestYaml(text, GITHUB_REPO);
+  }
+
+  private async fetchReleaseNotesBestEffort(version: string): Promise<string | undefined> {
+    try {
+      const res = await net.fetch(
+        `https://api.github.com/repos/${GITHUB_REPO}/releases/tags/v${encodeURIComponent(version)}`,
+        {
+          headers: {
+            Accept: 'application/vnd.github+json',
+            'User-Agent': `Orbit-Desktop/${app.getVersion()}`,
+          },
+        },
+      );
+      if (!res.ok) return undefined;
+      const data = (await res.json()) as GitHubReleasePayload;
+      return (data.body || '').trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async fetchGitHubLatestRelease(): Promise<{ payload: GitHubReleasePayload | null; status: number }> {
     const res = await net.fetch(LATEST_RELEASE_API, {
+      cache: 'no-store',
       headers: {
         Accept: 'application/vnd.github+json',
         'User-Agent': `Orbit-Desktop/${app.getVersion()}`,
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { payload: null, status: res.status };
     const data = (await res.json()) as GitHubReleasePayload;
     if (data.draft || data.prerelease || typeof data.tag_name !== 'string') {
-      return null;
+      return { payload: null, status: 404 };
     }
-    return data;
+    return { payload: data, status: 200 };
   }
 
   async check(): Promise<UpdateCheckResult> {
@@ -213,7 +247,32 @@ export class OrbitUpdater {
     });
 
     try {
-      const gh = await this.fetchGitHubLatestRelease();
+      // 1. 优先读取 GitHub Releases CDN 托管的 latest-mac.yml / latest.yml（无 API 限流，校园网共用出口 IP 100% 稳定）
+      const manifest = await this.fetchManifestLatestRelease().catch(() => null);
+      if (manifest) {
+        const latestVersion = manifest.version;
+        const available = compareSemver(latestVersion, currentVersion) > 0;
+        const asset = pickPlatformAsset(manifest.assets);
+        const canAutoInstall = this.supportsNativeAutoInstall();
+        const releaseNotes = available ? await this.fetchReleaseNotesBestEffort(latestVersion) : undefined;
+        return this.updateState({
+          currentVersion,
+          latestVersion,
+          releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v${latestVersion}`,
+          releaseNotes,
+          publishedAt: manifest.releaseDate,
+          assetName: asset?.name,
+          assetUrl: asset?.browser_download_url,
+          assetSize: asset?.size,
+          canAutoInstall,
+          available,
+          checked: true,
+          stage: available ? 'available' : 'up-to-date',
+        });
+      }
+
+      // 2. 回退 GitHub Releases API（明确区分 404 与 403/429 限流，绝不把限流误报成「已是最新版本」）
+      const { payload: gh, status } = await this.fetchGitHubLatestRelease();
       if (gh && gh.tag_name) {
         const latestVersion = gh.tag_name.replace(/^v/i, '');
         const available = compareSemver(latestVersion, currentVersion) > 0;
@@ -233,6 +292,10 @@ export class OrbitUpdater {
           checked: true,
           stage: available ? 'available' : 'up-to-date',
         });
+      }
+
+      if (status === 403 || status === 429) {
+        throw new Error('GitHub 接口触发访问频率限制，请稍后重试或直接前往发布页下载。');
       }
 
       // 仓库尚无正式 Release（404）时视为已是最新，不弹红错
