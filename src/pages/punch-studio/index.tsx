@@ -66,7 +66,7 @@ export function PunchStudioPage(): JSX.Element {
                 <li key={item.userId} className={styles.rankRow}>
                   <div className={styles.rankLeft}>
                     <span className={styles.rankIndex}>{item.rank ?? idx + 1}</span>
-                    <Avatar src={item.avatar} name={item.displayName} size="small" />
+                    <Avatar src={item.avatar} name={item.realName || item.displayName} size="small" />
                     <div>
                       <div className={styles.rankName}>{item.displayName}</div>
                       <div className={styles.rankTeam}>{item.teamName || '工作室成员'}</div>

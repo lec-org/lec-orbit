@@ -1,6 +1,6 @@
 {
   "name": "@lec-orbit/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Orbit（伴程）— LEC 工作室统一桌面工作台与 LecSSO 原生桌面认证器",
   "author": "LEC Software Studio",

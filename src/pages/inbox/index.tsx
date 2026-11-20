@@ -137,14 +137,29 @@ const APP_CHANNELS: readonly AppChannelMeta[] = [
 const SOURCE_LABELS: Record<string, string> = {
   'lec-doc': '乐程云文档',
   'lec-punch': '考勤打卡',
+  'lecpunch-api': '考勤打卡 API',
+  'lecpunch-web': '考勤打卡前端',
   'lec-drive': '云盘素材',
   'lec-oj': '在线判题',
+  'lec-oj-judge': '判题评测机',
   'lec-sso': '统一身份',
   orbit: 'Orbit 伴程',
+  'lec-orbit': 'Orbit 伴程',
 };
 
+function normalizeSourceChannel(sourceApp: string): ChannelKey {
+  const s = sourceApp.trim().toLowerCase();
+  if (s === 'lec-doc' || s.startsWith('lec-doc-') || s.startsWith('lecdoc')) return 'lec-doc';
+  if (s === 'lec-punch' || s.startsWith('lec-punch-') || s.startsWith('lecpunch')) return 'lec-punch';
+  if (s === 'lec-drive' || s.startsWith('lec-drive-') || s.startsWith('lecdrive')) return 'lec-drive';
+  if (s === 'lec-oj' || s.startsWith('lec-oj-') || s.startsWith('lecoj')) return 'lec-oj';
+  if (s === 'lec-sso' || s.startsWith('lec-sso-') || s.startsWith('lecsso')) return 'lec-sso';
+  if (s === 'orbit' || s.startsWith('lec-orbit')) return 'orbit';
+  return 'orbit';
+}
+
 function sourceTagLabel(sourceApp: string): string {
-  return SOURCE_LABELS[sourceApp.toLowerCase()] ?? sourceApp;
+  return SOURCE_LABELS[sourceApp.trim().toLowerCase()] ?? sourceApp;
 }
 
 export function InboxPage(): JSX.Element {
@@ -426,7 +441,7 @@ export function InboxPage(): JSX.Element {
     for (const n of allNotifications) {
       if (n.isRead) continue;
       counts.ALL += 1;
-      const key = n.sourceApp.toLowerCase() as ChannelKey;
+      const key = normalizeSourceChannel(n.sourceApp);
       if (key in counts) {
         counts[key] += 1;
       }
@@ -438,7 +453,7 @@ export function InboxPage(): JSX.Element {
     return allNotifications.filter((item) => {
       if (unreadOnly && item.isRead) return false;
       if (activeChannel !== 'ALL' && activeChannel !== 'announcements') {
-        if (item.sourceApp.toLowerCase() !== activeChannel) return false;
+        if (normalizeSourceChannel(item.sourceApp) !== activeChannel) return false;
       }
       return true;
     });
@@ -654,7 +669,7 @@ export function InboxPage(): JSX.Element {
                   const pageUrl =
                     typeof item.payload?.pageUrl === 'string' ? item.payload.pageUrl : undefined;
                   const chMeta = APP_CHANNELS.find(
-                    (c) => c.id === item.sourceApp.toLowerCase(),
+                    (c) => c.id === normalizeSourceChannel(item.sourceApp),
                   );
                   return (
                     <li key={item.id} className={styles.item}>

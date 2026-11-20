@@ -58,14 +58,28 @@ body,
 }
 
 .orbit-drag {
+  app-region: drag;
   -webkit-app-region: drag;
 }
 
+.orbit-drag button,
+.orbit-drag a,
+.orbit-drag input,
+.orbit-drag textarea,
+.orbit-drag select,
+.orbit-drag [role="button"],
+.orbit-drag [role="dialog"],
 .orbit-no-drag {
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
 .orbit-floating-transparent,
 .orbit-floating-transparent #root {
   background: transparent !important;
+}
+
+/* Windows / Linux 存在 36px 顶部标题栏与原生三键，右上角 Toast 自动下移避让 */
+:root[data-platform]:not([data-platform="darwin"]) .lg-toast-viewport[data-position="top-right"] {
+  top: 48px;
 }

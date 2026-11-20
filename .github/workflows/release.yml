@@ -63,9 +63,52 @@ jobs:
           go test ./...
           go build ./cmd/orbit-server
 
+  build-lec-doc:
+    name: 构建内置 LecDoc 前端包
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 lec-doc（只读 Deploy Key）
+        uses: actions/checkout@v4
+        with:
+          repository: lec-org/lec-doc
+          ssh-key: ${{ secrets.LEC_DOC_DEPLOY_KEY }}
+          path: apps/lec-doc
+      - name: 启用 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - name: 安装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/lec-doc/deploy/lec-doc/pnpm-lock.yaml
+      - name: 安装 LecDoc 前端及工作区依赖
+        working-directory: apps/lec-doc/deploy/lec-doc
+        run: pnpm install --frozen-lockfile --filter client...
+      - name: 构建 LecDoc 离线前端产物（LEC_ORBIT_BUILD=true）
+        working-directory: apps/lec-doc/deploy/lec-doc
+        env:
+          APP_URL: https://doc.lecspace.top
+          LEC_SSO_ISSUER: https://sso.lecspace.top/oidc
+          LEC_ORBIT_BUILD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: |
+          pnpm --filter @docmost/base-formula build
+          pnpm --filter @docmost/editor-ext build
+          pnpm --filter client build
+          ls -lh ../../apps/lec-doc/dist/index.html
+      - name: 上传内置 lec-doc-dist 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: lec-doc-dist
+          path: apps/lec-doc/apps/lec-doc/dist
+          if-no-files-found: error
+
   package:
     name: 打包 ${{ matrix.label }}
-    needs: verify
+    needs: [verify, build-lec-doc]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -95,16 +138,17 @@ jobs:
         with:
           repository: lec-org/liquidglass
           path: packages/liquidglass
-      - name: 可选检出 LecDoc 源码（配置 LEC_DOC_TOKEN 时内置离线包）
+      - name: 下载已构建的内置 LecDoc 前端包
+        uses: actions/download-artifact@v4
+        with:
+          name: lec-doc-dist
+          path: apps/lec-orbit/resources/lec-doc-dist
+      - name: 校验内置 LecDoc 入口文件
+        working-directory: apps/lec-orbit
         shell: bash
-        env:
-          LEC_DOC_TOKEN: ${{ secrets.LEC_DOC_TOKEN }}
         run: |
-          if [ -n "$LEC_DOC_TOKEN" ]; then
-            git clone --depth 1 "https://x-access-token:${LEC_DOC_TOKEN}@github.com/lec-org/lec-doc.git" apps/lec-doc
-          else
-            echo "未配置 LEC_DOC_TOKEN，跳过离线 LecDoc 打包（运行时自动回退远程模式）"
-          fi
+          test -f resources/lec-doc-dist/index.html
+          ls -lh resources/lec-doc-dist/index.html
       - name: 安装 Node 22
         uses: actions/setup-node@v4
         with:
@@ -116,16 +160,6 @@ jobs:
       - name: 安装依赖
         working-directory: apps/lec-orbit
         run: bun install
-      - name: 准备内置 LecDoc 前端资源（若存在则构建，否则回退远程模式）
-        working-directory: apps/lec-orbit
-        shell: bash
-        run: |
-          if [ -d "../lec-doc/apps/lec-doc" ]; then
-            (cd ../lec-doc/apps/lec-doc && bun install && cd - >/dev/null)
-            node scripts/bundle-lec-doc.mjs
-          else
-            node scripts/bundle-lec-doc.mjs --allow-missing
-          fi
       - name: 构建 Electron 产物
         working-directory: apps/lec-orbit
         run: bun run build
@@ -164,6 +198,7 @@ jobs:
       - name: 下载全部平台制品
         uses: actions/download-artifact@v4
         with:
+          pattern: orbit-*
           path: artifacts
           merge-multiple: true
       - name: 生成 SHA256 校验清单

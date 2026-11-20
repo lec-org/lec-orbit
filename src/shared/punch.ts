@@ -31,6 +31,8 @@ export interface NetworkPolicyStatus {
 export interface TeamActiveMember {
   userId: string;
   displayName: string;
+  realName?: string;
+  nickname?: string;
   avatar?: string;
   teamName?: string;
   checkedInAt: string;
@@ -63,6 +65,8 @@ export interface MyWeeklyStats {
 export interface TeamWeeklyRankingItem {
   userId: string;
   displayName: string;
+  realName?: string;
+  nickname?: string;
   avatar?: string;
   teamName?: string;
   totalDurationSeconds: number;
@@ -267,4 +271,27 @@ export function formatReadableDuration(totalSeconds: number): string {
   const m = Math.floor((safe % 3600) / 60);
   if (h > 0) return `${h} 小时 ${m} 分`;
   return `${m} 分钟`;
+}
+
+/**
+ * 统一成员展示名称：LecPunch 的 displayName 往往是成员自定义昵称，realName 为真实姓名。
+ * - 若同时存在真名与不同的昵称，展示「真名（昵称）」；
+ * - 否则优先展示真名，缺失时回退昵称或用户名。
+ */
+export function formatMemberDisplayName(member: {
+  realName?: unknown;
+  displayName?: unknown;
+  username?: unknown;
+}): string {
+  const realName = typeof member.realName === 'string' ? member.realName.trim() : '';
+  const nickname = typeof member.displayName === 'string' ? member.displayName.trim() : '';
+  const username = typeof member.username === 'string' ? member.username.trim() : '';
+
+  if (realName) {
+    if (nickname && nickname !== realName) {
+      return `${realName}（${nickname}）`;
+    }
+    return realName;
+  }
+  return nickname || username || '工作室成员';
 }

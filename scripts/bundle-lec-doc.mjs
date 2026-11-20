@@ -14,6 +14,12 @@ const lecDocDistDir = path.join(lecDocClientDir, 'dist');
 const targetDir = path.join(orbitRoot, 'resources', 'lec-doc-dist');
 
 const allowMissing = process.argv.includes('--allow-missing');
+const skipIfPresent = process.argv.includes('--skip-if-present');
+
+if (skipIfPresent && fs.existsSync(path.join(targetDir, 'index.html'))) {
+  console.info(`[bundle:doc] 检测到已存在的内置 LecDoc 产物，跳过重复构建：${targetDir}`);
+  process.exit(0);
+}
 
 if (!fs.existsSync(lecDocClientDir)) {
   if (allowMissing) {
@@ -28,7 +34,9 @@ if (!fs.existsSync(lecDocClientDir)) {
 const skipBuild = process.argv.includes('--skip-build');
 if (!skipBuild || !fs.existsSync(path.join(lecDocDistDir, 'index.html'))) {
   console.info('[bundle:doc] 正在构建本地 LecDoc 前端产物 (vite build)...');
-  execSync('./node_modules/.bin/vite build', {
+  const viteBin = path.join(lecDocClientDir, 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite');
+  const buildCmd = fs.existsSync(viteBin) ? `"${viteBin}" build` : 'npx vite build';
+  execSync(buildCmd, {
     cwd: lecDocClientDir,
     stdio: 'inherit',
     env: {

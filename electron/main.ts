@@ -193,7 +193,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle('orbit:system:notify', (_e, raw) => {
     const payload = z.object({ title: z.string().min(1).max(120), body: z.string().max(400) }).parse(raw);
     if (Notification.isSupported()) {
-      new Notification({ title: payload.title, body: payload.body }).show();
+      const notif = new Notification({ title: payload.title, body: payload.body });
+      notif.on('click', () => {
+        windowManager.showMainWindow();
+      });
+      notif.show();
     }
   });
   ipcMain.handle('orbit:system:updateTrayPunch', (_e, raw) => {
@@ -371,6 +375,15 @@ app.whenReady().then(async () => {
       devUrl: process.env.ELECTRON_RENDERER_URL,
       htmlPath,
       iconPath: appIconPath,
+    },
+    async (challengeId) => {
+      try {
+        await authService.submitApproveDecision(challengeId, 'approve');
+        return true;
+      } catch (err) {
+        console.error('[orbit:main] silent approveInternalDocSignIn failed:', err);
+        return false;
+      }
     },
   );
 

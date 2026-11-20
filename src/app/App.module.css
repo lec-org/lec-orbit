@@ -1,9 +1,52 @@
 .shell {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+.shellWin {
+  grid-template-rows: 36px minmax(0, 1fr);
+}
+
+.winTitlebar {
+  grid-column: 1 / -1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 144px 0 12px;
+  border-bottom: 1px solid var(--orbit-border);
+  background: var(--orbit-sidebar-bg);
+  backdrop-filter: blur(28px) saturate(160%);
+  user-select: none;
+  z-index: 30;
+}
+
+.winTitleIcon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.winTitleText {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+  letter-spacing: -0.01em;
+}
+
+.macTopDragStrip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 18px;
+  z-index: 15;
 }
 
 .sidebar {

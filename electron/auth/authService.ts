@@ -42,11 +42,21 @@ interface TokenResponse {
   id_token?: string;
 }
 
+interface ParsedSetCookie {
+  name: string;
+  value: string;
+  path?: string;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
+  expirationDate?: number;
+}
+
 interface PendingExperienceFlow {
   redirectUri: string;
   state: string;
   verifier: string;
-  cookies: Map<string, string>;
+  cookies: Map<string, ParsedSetCookie>;
   server: http.Server;
   callbackPromise: Promise<string>;
 }
@@ -71,7 +81,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   }
 }
 
-function parseSetCookieHeaders(headers: Headers): Array<{ name: string; value: string }> {
+function parseSetCookieHeaders(headers: Headers): ParsedSetCookie[] {
   const anyHeaders = headers as Headers & { getSetCookie?: () => string[] };
   const rawList =
     typeof anyHeaders.getSetCookie === 'function'
@@ -79,18 +89,50 @@ function parseSetCookieHeaders(headers: Headers): Array<{ name: string; value: s
       : headers.get('set-cookie')
         ? [headers.get('set-cookie')!]
         : [];
-  const parsed: Array<{ name: string; value: string }> = [];
+  const parsed: ParsedSetCookie[] = [];
   for (const raw of rawList) {
-    const first = raw.split(';', 1)[0]?.trim() ?? '';
+    const parts = raw
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const first = parts[0] ?? '';
     const eq = first.indexOf('=');
     if (eq <= 0) continue;
-    parsed.push({ name: first.slice(0, eq).trim(), value: first.slice(eq + 1).trim() });
+    const item: ParsedSetCookie = {
+      name: first.slice(0, eq).trim(),
+      value: first.slice(eq + 1).trim(),
+    };
+    for (const attr of parts.slice(1)) {
+      const [kRaw, ...vParts] = attr.split('=');
+      const key = kRaw?.trim().toLowerCase();
+      const val = vParts.join('=').trim();
+      if (key === 'path' && val) item.path = val;
+      else if (key === 'httponly') item.httpOnly = true;
+      else if (key === 'secure') item.secure = true;
+      else if (key === 'max-age') {
+        const secs = Number(val);
+        if (Number.isFinite(secs)) {
+          item.expirationDate = Math.floor(Date.now() / 1000) + secs;
+        }
+      } else if (key === 'expires') {
+        const ts = Date.parse(val);
+        if (!Number.isNaN(ts)) {
+          item.expirationDate = Math.floor(ts / 1000);
+        }
+      } else if (key === 'samesite') {
+        const lower = val.toLowerCase();
+        if (lower === 'strict') item.sameSite = 'strict';
+        else if (lower === 'lax') item.sameSite = 'lax';
+        else if (lower === 'none') item.sameSite = 'no_restriction';
+      }
+    }
+    parsed.push(item);
   }
   return parsed;
 }
 
-function cookieHeaderFromMap(jar: Map<string, string>): string {
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+function cookieHeaderFromMap(jar: Map<string, ParsedSetCookie>): string {
+  return [...jar.values()].map((c) => `${c.name}=${c.value}`).join('; ');
 }
 
 export class AuthService {
@@ -318,8 +360,8 @@ export class AuthService {
       redirect: 'manual',
     });
     for (const c of parseSetCookieHeaders(response.headers)) {
-      if (c.value) {
-        flow.cookies.set(c.name, c.value);
+      if (c.value && (c.expirationDate === undefined || c.expirationDate > Math.floor(Date.now() / 1000))) {
+        flow.cookies.set(c.name, c);
       } else {
         flow.cookies.delete(c.name);
       }
@@ -336,28 +378,34 @@ export class AuthService {
     return { status: response.status, json, location: response.headers.get('location') };
   }
 
-  private async syncCookiesToSharedSession(cookies: Map<string, string>): Promise<void> {
+  private async syncCookiesToSharedSession(cookies: Map<string, ParsedSetCookie>): Promise<void> {
     const cfg = getOrbitEndpoints();
     const ses = this.getSharedSession();
     const secure = cfg.ssoEndpoint.startsWith('https://');
-    const expirationDate = Math.floor(Date.now() / 1000) + 14 * 24 * 3600;
+    const defaultExp = Math.floor(Date.now() / 1000) + 14 * 24 * 3600;
     const syncedNames: string[] = [];
-    for (const [name, value] of cookies.entries()) {
-      if (!value || name.startsWith('_interaction')) continue;
+    for (const cookie of cookies.values()) {
+      // 仅同步 LecSSO 会话 Cookie（_session / _session.sig 等），避免写入 Orbit 专属 _logto 或临时 _interaction
+      if (!cookie.value || (cookie.name !== '_session' && !cookie.name.startsWith('_session.'))) {
+        continue;
+      }
       await ses.cookies
         .set({
           url: cfg.ssoEndpoint,
-          name,
-          value,
-          path: '/',
-          secure,
-          httpOnly: true,
-          sameSite: secure ? 'no_restriction' : 'lax',
-          expirationDate,
+          name: cookie.name,
+          value: cookie.value,
+          path: cookie.path || '/',
+          secure: cookie.secure ?? secure,
+          httpOnly: cookie.httpOnly ?? true,
+          sameSite: cookie.sameSite ?? 'lax',
+          expirationDate: cookie.expirationDate ?? defaultExp,
         })
-        .then(() => syncedNames.push(name))
-        .catch(() => undefined);
+        .then(() => syncedNames.push(cookie.name))
+        .catch((err) => {
+          console.error(`[orbit:auth] failed to sync cookie ${cookie.name}:`, err);
+        });
     }
+    await ses.cookies.flushStore().catch(() => undefined);
     console.info('[orbit:auth] synced SSO cookies to shared session:', syncedNames.join(', '));
   }
 
@@ -621,6 +669,7 @@ export class AuthService {
       void loginWin.loadURL(authUrl.toString());
       try {
         const code = await Promise.race([callbackPromise, closedPromise]);
+        await this.getSharedSession().cookies.flushStore().catch(() => undefined);
         if (!loginWin.isDestroyed()) loginWin.close();
         await this.exchangeCodeAndPersist(code, redirectUri, verifier);
         const auth = this.getState();

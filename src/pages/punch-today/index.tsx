@@ -251,7 +251,7 @@ export function PunchTodayPage(): JSX.Element {
                 }`}
                 onClick={(e) => openMemberDetail(member, e)}
               >
-                <Avatar src={member.avatar} name={member.displayName} size="regular" />
+                <Avatar src={member.avatar} name={member.realName || member.displayName} size="regular" />
                 <div className={styles.presenceMeta}>
                   <span className={styles.presenceName}>{member.displayName}</span>
                   <span className={styles.presenceSub}>
@@ -275,7 +275,7 @@ export function PunchTodayPage(): JSX.Element {
           style={{ left: popoverPos.left, top: popoverPos.top }}
         >
           <div className={styles.popoverHeader}>
-            <Avatar src={selectedMember.avatar} name={selectedMember.displayName} size="regular" />
+            <Avatar src={selectedMember.avatar} name={selectedMember.realName || selectedMember.displayName} size="regular" />
             <div className={styles.popoverTitleWrap}>
               <div className={styles.popoverNameRow}>
                 <h3 className={styles.popoverTitle}>{selectedMember.displayName}</h3>

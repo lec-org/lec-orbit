@@ -1,21 +1,22 @@
 /** LecPunch 后端接口统一 Axios 客户端：集中维护接口路径、鉴权拦截与响应适配。 */
 import axios, { AxiosError } from 'axios';
 import { getOrbitEndpoints } from '@shared/env';
-import type {
-  AttendanceRecordItem,
-  AttendanceSnapshot,
-  CardGameActionInput,
-  CardGameActionResponse,
-  CardGameView,
-  MyWeeklyStats,
-  NetworkPolicyStatus,
-  PointsSummary,
-  PunchNotificationItem,
-  PunchUser,
-  TeamActiveMember,
-  TeamEventItem,
-  TeamWeeklyRankingItem,
-  WeeklyReportItem,
+import {
+  formatMemberDisplayName,
+  type AttendanceRecordItem,
+  type AttendanceSnapshot,
+  type CardGameActionInput,
+  type CardGameActionResponse,
+  type CardGameView,
+  type MyWeeklyStats,
+  type NetworkPolicyStatus,
+  type PointsSummary,
+  type PunchNotificationItem,
+  type PunchUser,
+  type TeamActiveMember,
+  type TeamEventItem,
+  type TeamWeeklyRankingItem,
+  type WeeklyReportItem,
 } from '@shared/punch';
 import { getOrbitClient } from './orbitClient';
 
@@ -212,26 +213,37 @@ export const punchApi = {
   async fetchTeamActive(): Promise<TeamActiveMember[]> {
     const { data } = await client.get<unknown>(PUNCH_ENDPOINTS.teamActive);
     const raw = unwrapArray<Record<string, unknown>>(data, 'items');
-    return raw.map((item) => ({
-      userId: String(item.memberKey ?? item.userId ?? ''),
-      displayName: String(item.displayName ?? item.realName ?? item.username ?? '工作室成员'),
-      avatar:
-        typeof item.avatarUrl === 'string' && item.avatarUrl
-          ? item.avatarUrl
-          : typeof item.avatarBase64 === 'string' && item.avatarBase64
-            ? item.avatarBase64
-            : typeof item.avatar === 'string'
-              ? item.avatar
+    return raw.map((item) => {
+      const realName = typeof item.realName === 'string' && item.realName.trim() ? item.realName.trim() : undefined;
+      const nickname =
+        typeof item.displayName === 'string' && item.displayName.trim() ? item.displayName.trim() : undefined;
+      return {
+        userId: String(item.memberKey ?? item.userId ?? ''),
+        displayName: formatMemberDisplayName({
+          realName,
+          displayName: nickname,
+          username: item.username,
+        }),
+        realName,
+        nickname,
+        avatar:
+          typeof item.avatarUrl === 'string' && item.avatarUrl
+            ? item.avatarUrl
+            : typeof item.avatarBase64 === 'string' && item.avatarBase64
+              ? item.avatarBase64
+              : typeof item.avatar === 'string'
+                ? item.avatar
+                : undefined,
+        teamName:
+          typeof item.teamName === 'string'
+            ? item.teamName
+            : item.enrollYear
+              ? `${item.enrollYear} 级`
               : undefined,
-      teamName:
-        typeof item.teamName === 'string'
-          ? item.teamName
-          : item.enrollYear
-            ? `${item.enrollYear} 级`
-            : undefined,
-      checkedInAt: String(item.checkInAt ?? item.checkedInAt ?? new Date().toISOString()),
-      durationSeconds: Number(item.elapsedSeconds ?? item.durationSeconds ?? 0),
-    }));
+        checkedInAt: String(item.checkInAt ?? item.checkedInAt ?? new Date().toISOString()),
+        durationSeconds: Number(item.elapsedSeconds ?? item.durationSeconds ?? 0),
+      };
+    });
   },
 
   async fetchMyWeeklyStats(): Promise<MyWeeklyStats> {
@@ -274,21 +286,38 @@ export const punchApi = {
   async fetchTeamWeeklyRanking(): Promise<TeamWeeklyRankingItem[]> {
     const { data } = await client.get<unknown>(PUNCH_ENDPOINTS.teamWeeklyStats);
     const raw = unwrapArray<Record<string, unknown>>(data, 'items');
-    return raw.map((item, idx) => ({
-      userId: String(item.memberKey ?? item.userId ?? idx),
-      displayName: String(item.displayName ?? item.realName ?? item.username ?? '工作室成员'),
-      avatar:
-        typeof item.avatarUrl === 'string' && item.avatarUrl
-          ? item.avatarUrl
-          : typeof item.avatarBase64 === 'string' && item.avatarBase64
-            ? item.avatarBase64
-            : typeof item.avatar === 'string'
-              ? item.avatar
+    return raw.map((item, idx) => {
+      const realName = typeof item.realName === 'string' && item.realName.trim() ? item.realName.trim() : undefined;
+      const nickname =
+        typeof item.displayName === 'string' && item.displayName.trim() ? item.displayName.trim() : undefined;
+      return {
+        userId: String(item.memberKey ?? item.userId ?? idx),
+        displayName: formatMemberDisplayName({
+          realName,
+          displayName: nickname,
+          username: item.username,
+        }),
+        realName,
+        nickname,
+        avatar:
+          typeof item.avatarUrl === 'string' && item.avatarUrl
+            ? item.avatarUrl
+            : typeof item.avatarBase64 === 'string' && item.avatarBase64
+              ? item.avatarBase64
+              : typeof item.avatar === 'string'
+                ? item.avatar
+                : undefined,
+        teamName:
+          typeof item.teamName === 'string'
+            ? item.teamName
+            : item.enrollYear
+              ? `${item.enrollYear} 级`
               : undefined,
-      totalDurationSeconds: Number(item.totalDurationSeconds ?? 0),
-      rank: Number(item.rank ?? idx + 1),
-      qualified: Boolean(item.assessmentComplete ?? item.qualified),
-    }));
+        totalDurationSeconds: Number(item.totalDurationSeconds ?? 0),
+        rank: Number(item.rank ?? idx + 1),
+        qualified: Boolean(item.assessmentComplete ?? item.qualified),
+      };
+    });
   },
 
   async fetchMyRecords(pageSize = 50): Promise<AttendanceRecordItem[]> {

@@ -24,7 +24,8 @@ import {
   Users,
 } from '@lec-space/icons';
 import { Compass, Sparkles, X } from 'lucide-react';
-import { formatReadableDuration } from '@shared/punch';
+import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
+import { evaluateFocusReminder } from '@shared/reminders';
 import { getOrbitClient } from '@/services/orbitClient';
 import { connectOrbitWebSocket } from '@/services/orbitServerApi';
 import { notifyToast, registerOrbitToast } from '@/services/orbitToast';
@@ -210,6 +211,76 @@ export function App(): JSX.Element {
     };
   }, [isFloatingBall, auth.authenticated, syncStaleData]);
 
+  // 专注提醒真实定时引擎：连续专注 2h 休息、4h15m / 4h45m 防超 5 小时上限签退、周末考核冲刺提醒
+  useEffect(() => {
+    if (isFloatingBall || !auth.authenticated || !config.remindersEnabled) return;
+    const STORAGE_KEY = 'orbit:sent-reminders:v1';
+    const readSentKeys = (): Set<string> => {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+        return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+      } catch {
+        return new Set();
+      }
+    };
+    const saveSentKey = (key: string) => {
+      try {
+        const next = [...readSentKeys(), key].slice(-60);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // 忽略本地存储异常
+      }
+    };
+
+    const tick = () => {
+      const state = useOrbitStore.getState();
+      if (!state.auth.authenticated || !state.config.remindersEnabled) return;
+      const att = state.attendance;
+      const isCheckedIn = Boolean(att?.isCheckedIn);
+      let elapsedSeconds = att?.currentSessionSeconds ?? 0;
+      if (isCheckedIn && att?.checkedInAt) {
+        const startedMs = Date.parse(att.checkedInAt);
+        if (!Number.isNaN(startedMs)) {
+          elapsedSeconds = Math.max(elapsedSeconds, Math.floor((Date.now() - startedMs) / 1000));
+        }
+      }
+      const weekTargetSeconds = state.weeklyStats?.targetDurationSeconds ?? att?.weekTargetSeconds ?? 18 * 3600;
+      const weekTotalSeconds =
+        (state.weeklyStats?.totalDurationSeconds ?? att?.weekDurationSeconds ?? 0) +
+        (isCheckedIn ? elapsedSeconds : 0);
+
+      const notice = evaluateFocusReminder({
+        now: new Date(),
+        authenticated: state.auth.authenticated,
+        remindersEnabled: state.config.remindersEnabled,
+        isCheckedIn,
+        sessionKey: att?.activeSessionId || att?.checkedInAt || 'active',
+        elapsedSeconds,
+        weekTotalSeconds,
+        weekTargetSeconds,
+        weekKey: state.weeklyStats?.week || getCurrentIsoWeek(),
+        sentKeys: readSentKeys(),
+      });
+      if (!notice) return;
+      saveSentKey(notice.key);
+      void getOrbitClient().system.notify(notice.title, notice.body);
+      notifyToast({
+        tone: notice.tone,
+        title: notice.title,
+        description: notice.body,
+        action: { label: '查看今日专注', onClick: () => setActiveTab('punch-today') },
+      });
+    };
+
+    const initialTimer = window.setTimeout(tick, 10_000);
+    const interval = window.setInterval(tick, 60_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(interval);
+    };
+  }, [isFloatingBall, auth.authenticated, config.remindersEnabled, setActiveTab]);
+
   useEffect(() => {
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (!mq) return;
@@ -224,6 +295,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.platform = getOrbitClient().platform;
+  }, []);
 
   const unreadCount = useMemo(() => {
     const punchUnread = notifications.filter(
@@ -288,8 +363,14 @@ export function App(): JSX.Element {
     <ConfigProvider locale={zhCN} theme={resolvedTheme}>
       <ToastProvider position="top-right" maxVisible={3}>
         <ToastBridge />
-        <div className={styles.shell}>
-          <aside className={`${styles.sidebar} ${isMac ? styles.sidebarMac : ''}`}>
+        <div className={`${styles.shell} ${!isMac ? styles.shellWin : ''}`}>
+          {!isMac && (
+            <header className={`${styles.winTitlebar} orbit-drag`} aria-label="窗口标题栏">
+              <img src="./icon.png" alt="" className={styles.winTitleIcon} />
+              <span className={styles.winTitleText}>Orbit · 伴程</span>
+            </header>
+          )}
+          <aside className={`${styles.sidebar} ${isMac ? styles.sidebarMac : ''} orbit-drag`}>
             <div className={`${styles.topBar} orbit-drag`} ref={profileAreaRef}>
               <button
                 type="button"
@@ -472,6 +553,9 @@ export function App(): JSX.Element {
           </aside>
 
           <main className={styles.content}>
+            {isMac && activeTab !== 'doc' && (
+              <div className={`${styles.macTopDragStrip} orbit-drag`} aria-hidden="true" />
+            )}
             {!ready ? (
               <div className={styles.loadingState}>正在初始化工作台…</div>
             ) : (

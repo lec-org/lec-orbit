@@ -52,6 +52,8 @@ export class WindowManager {
   private docLoading = false;
   private docHibernated = false;
   private docAutoSsoAttempted = false;
+  private docOrbitBridgeAttempted = false;
+  private docOrbitBridgeInFlight = false;
   private docPageContext: DocPageContext | null = null;
   private currentTheme: ThemePreference = 'system';
   private hibernateTimer: NodeJS.Timeout | null = null;
@@ -68,6 +70,7 @@ export class WindowManager {
     private readonly docPreloadPath: string,
     private readonly localDocHost: LocalDocHost,
     private readonly rendererEntry: { devUrl?: string; htmlPath: string; iconPath?: string },
+    private readonly approveInternalDocSignIn?: (challengeId: string) => Promise<boolean>,
   ) {
     this.docLastUrl = getOrbitEndpoints().docWebUrl;
   }
@@ -92,24 +95,121 @@ export class WindowManager {
 
   onAuthSessionUpdated(authenticated: boolean): void {
     this.docAutoSsoAttempted = false;
+    this.docOrbitBridgeAttempted = false;
     if (authenticated && this.docView && !this.docView.webContents.isDestroyed()) {
       const url = this.docView.webContents.getURL();
       const canonical = this.localDocHost.toCanonicalUrl(url);
-      if (canonical.startsWith(`${getOrbitEndpoints().docWebUrl}/login`)) {
+      const endpoints = getOrbitEndpoints();
+      if (canonical.startsWith(`${endpoints.docWebUrl}/login`)) {
         this.docAutoSsoAttempted = true;
         void this.docView.webContents.loadURL(
-          `${getOrbitEndpoints().docWebUrl}/api/auth/lec-sso/login?redirect=/`,
+          `${endpoints.docWebUrl}/api/auth/lec-sso/login?redirect=/`,
         );
+      } else if (url.startsWith(`${endpoints.ssoEndpoint}/sign-in`)) {
+        void this.maybeAutoBridgeDocSignIn(this.docView.webContents, url);
       }
     }
   }
 
-  /** 将 Orbit 的浅色 / 深色 / 跟随系统偏好同步给 Electron nativeTheme、内嵌 LecDoc 及悬浮球。 */
+  /**
+   * 自愈式静默 SSO 桥接：当内嵌 LecDoc 跳到 sso.lecspace.top/sign-in（例如 _session 过期、升级前未同步或 Cookie 丢失）
+   * 且 Orbit 主进程本身已持有有效 LecSSO 凭证时，复用线上已启用的 /api/lec/orbit-auth/challenges 机制
+   * 仅针对 doc.lecspace.top 自动完成静默签发与消费，免去用户二次输入密码，同时顺带刷新 persist:lec-orbit 的 _session。
+   */
+  private async maybeAutoBridgeDocSignIn(wc: Electron.WebContents, currentUrl: string): Promise<boolean> {
+    const endpoints = getOrbitEndpoints();
+    if (
+      this.docOrbitBridgeAttempted ||
+      this.docOrbitBridgeInFlight ||
+      !this.isAuthenticated() ||
+      !this.approveInternalDocSignIn ||
+      !currentUrl.startsWith(`${endpoints.ssoEndpoint}/sign-in`)
+    ) {
+      return false;
+    }
+
+    this.docOrbitBridgeAttempted = true;
+    this.docOrbitBridgeInFlight = true;
+    try {
+      const challenge = (await wc.executeJavaScript(
+        `(async () => {
+          const res = await fetch('/api/lec/orbit-auth/challenges', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+          });
+          if (!res.ok) return null;
+          return await res.json();
+        })()`,
+      )) as { challengeId?: string; clientHost?: string; riskLevel?: string } | null;
+
+      if (!challenge?.challengeId) {
+        return false;
+      }
+
+      // 严格校验挑战目标必须是内嵌 LecDoc（doc.lecspace.top）且非高危应用，绝不静默批准其他站点
+      const expectedDocHost = new URL(endpoints.docWebUrl).host;
+      if (challenge.clientHost !== expectedDocHost || challenge.riskLevel !== 'normal') {
+        console.warn('[orbit:doc-sso] skipped auto-bridge for unexpected target:', {
+          clientHost: challenge.clientHost,
+          riskLevel: challenge.riskLevel,
+        });
+        return false;
+      }
+
+      const approved = await this.approveInternalDocSignIn(challenge.challengeId);
+      if (!approved || wc.isDestroyed()) {
+        return false;
+      }
+
+      const consumed = (await wc.executeJavaScript(
+        `(async () => {
+          const res = await fetch('/api/lec/orbit-auth/challenges/${encodeURIComponent(challenge.challengeId)}/consume', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+          });
+          if (!res.ok) return null;
+          return await res.json();
+        })()`,
+      )) as { status?: string; redirectTo?: string } | null;
+
+      if (consumed?.status === 'approved' && consumed.redirectTo && !wc.isDestroyed()) {
+        console.info('[orbit:doc-sso] silently bridged LecDoc SSO via Orbit desktop token');
+        void wc.loadURL(consumed.redirectTo);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[orbit:doc-sso] silent SSO bridge failed:', err);
+      return false;
+    } finally {
+      this.docOrbitBridgeInFlight = false;
+    }
+  }
+
+  /** 将 Orbit 的浅色 / 深色 / 跟随系统偏好同步给 Electron nativeTheme、Windows 标题栏三键、内嵌 LecDoc 及悬浮球。 */
   syncTheme(theme: ThemePreference): void {
     this.currentTheme = theme;
     nativeTheme.themeSource = theme;
+    this.applyTitleBarOverlay();
     this.applyThemeToDocView();
     this.emitFloatingState();
+  }
+
+  private applyTitleBarOverlay(): void {
+    if (process.platform === 'darwin') return;
+    const win = this.mainWindow;
+    if (!win || win.isDestroyed()) return;
+    const isDark = nativeTheme.shouldUseDarkColors;
+    win.setBackgroundColor(isDark ? '#0d1117' : '#f3f6fb');
+    if (typeof win.setTitleBarOverlay === 'function') {
+      win.setTitleBarOverlay({
+        color: '#00000000',
+        symbolColor: isDark ? '#e2e8f0' : '#334155',
+        height: 36,
+      });
+    }
   }
 
   private applyThemeToDocView(): void {
@@ -198,19 +298,19 @@ export class WindowManager {
       show: false,
       title: 'Orbit · 伴程',
       icon: this.rendererEntry.iconPath,
-      // Apple HIG：macOS 左侧红绿灯 + 液态玻璃原生 vibrancy；Windows 尊重右侧系统三键
+      // Apple HIG：macOS 左侧红绿灯 + 液态玻璃原生 vibrancy；Windows 统一 36px 顶部标题栏 + 动态明暗三键
       titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-      trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
+      trafficLightPosition: isMac ? { x: 16, y: 14 } : undefined,
       titleBarOverlay: !isMac
         ? {
             color: '#00000000',
-            symbolColor: '#64748b',
-            height: 44,
+            symbolColor: nativeTheme.shouldUseDarkColors ? '#e2e8f0' : '#334155',
+            height: 36,
           }
         : undefined,
       vibrancy: isMac ? 'under-window' : undefined,
       visualEffectState: isMac ? 'active' : undefined,
-      backgroundColor: isMac ? '#00000000' : '#f5f7fb',
+      backgroundColor: isMac ? '#00000000' : nativeTheme.shouldUseDarkColors ? '#0d1117' : '#f3f6fb',
       webPreferences: {
         preload: this.preloadPath,
         contextIsolation: true,
@@ -256,7 +356,15 @@ export class WindowManager {
       }
     });
 
+    const onNativeThemeUpdated = () => {
+      this.applyTitleBarOverlay();
+      this.applyThemeToDocView();
+      this.emitFloatingState();
+    };
+    nativeTheme.on('updated', onNativeThemeUpdated);
+
     win.on('closed', () => {
+      nativeTheme.off('updated', onNativeThemeUpdated);
       this.destroyDocView(false);
       this.mainWindow = null;
     });
@@ -422,6 +530,9 @@ export class WindowManager {
       const title = wc.getTitle();
       if (currentUrl && maybeRedirectRemoteToLocal(currentUrl)) return;
       if (currentUrl && maybeAutoTriggerDocSso(currentUrl)) return;
+      if (currentUrl && currentUrl.startsWith(`${getOrbitEndpoints().ssoEndpoint}/sign-in`)) {
+        void this.maybeAutoBridgeDocSignIn(wc, currentUrl);
+      }
       if (currentUrl) {
         this.docLastUrl = this.localDocHost.toCanonicalUrl(currentUrl);
         if (!/\/p\//.test(currentUrl)) {
@@ -567,6 +678,8 @@ export class WindowManager {
   }
 
   docReload(): void {
+    this.docAutoSsoAttempted = false;
+    this.docOrbitBridgeAttempted = false;
     if (this.docView && !this.docView.webContents.isDestroyed()) {
       this.docView.webContents.reloadIgnoringCache();
     }
