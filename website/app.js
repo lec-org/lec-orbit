@@ -53,20 +53,24 @@
   });
   activateTab('focus');
 
-  // 3. 复制 macOS 命令
-  const copyBtn = document.getElementById('copy-mac-cmd');
-  const fixCmd = document.getElementById('mac-fix-cmd');
-  copyBtn?.addEventListener('click', async () => {
-    const text = fixCmd?.textContent?.trim() || 'xattr -cr /Applications/Orbit.app';
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.textContent = '已复制';
-      setTimeout(() => {
-        copyBtn.textContent = '复制命令';
-      }, 1800);
-    } catch {
-      // 忽略剪贴板权限拒绝
-    }
+  // 3. 复制 macOS 安装与修复命令
+  document.querySelectorAll('[data-copy-target]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const targetId = btn.getAttribute('data-copy-target');
+      const codeEl = targetId ? document.getElementById(targetId) : null;
+      const text = codeEl?.textContent?.trim();
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        const orig = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(() => {
+          btn.textContent = orig || '复制命令';
+        }, 1800);
+      } catch {
+        // 忽略剪贴板权限拒绝
+      }
+    });
   });
 
   // 4. 识别访客平台
@@ -104,12 +108,35 @@
     const primaryBtn = document.getElementById('primary-download-btn');
     const primaryLabel = document.getElementById('primary-download-label');
 
+    const CACHE_KEY = 'orbit-site-latest-release-v1';
+    const CACHE_TTL_MS = 10 * 60 * 1000;
+
     try {
-      const res = await fetch(LATEST_API, {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      let data = null;
+      try {
+        const cachedRaw = localStorage.getItem(CACHE_KEY);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && cached.ts && Date.now() - cached.ts < CACHE_TTL_MS && cached.data) {
+            data = cached.data;
+          }
+        }
+      } catch {
+        // 忽略本地缓存解析异常
+      }
+
+      if (!data) {
+        const res = await fetch(LATEST_API, {
+          headers: { Accept: 'application/vnd.github+json' },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
+        } catch {
+          // 忽略配额限制
+        }
+      }
       const version = data.tag_name || 'v0.1.0';
       const published = data.published_at
         ? new Date(data.published_at).toLocaleDateString('zh-CN')

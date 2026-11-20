@@ -448,14 +448,33 @@
 
         <div class="install-tip glass-panel">
           <div class="install-tip-text">
-            <strong>macOS 首次打开提示「已损坏」或「无法验证开发者」？</strong>
+            <strong>macOS 免「已损坏」弹窗 · 推荐命令行一键安装（免费开源版）</strong>
             <p>
-              因校园工作室开源版本未购买 Apple 商业公证证书，拖入「应用程序」后在终端执行下方命令即可正常打开：
+              因开源版本未购买 Apple 商业公证证书，使用下方任一方式可自动校验 SHA256 并清除隔离属性，安装即用、后续一键升级：
             </p>
           </div>
-          <div class="code-box">
-            <code id="mac-fix-cmd">xattr -cr /Applications/Orbit.app</code>
-            <button type="button" class="btn btn-glass btn-sm" id="copy-mac-cmd">复制命令</button>
+          <div class="install-commands">
+            <div class="install-cmd-row">
+              <span class="cmd-label">一键脚本（无需 Homebrew）</span>
+              <div class="code-box">
+                <code id="mac-script-cmd">curl -fsSL https://lec-org.github.io/lec-orbit/install.sh | bash</code>
+                <button type="button" class="btn btn-glass btn-sm" data-copy-target="mac-script-cmd">复制命令</button>
+              </div>
+            </div>
+            <div class="install-cmd-row">
+              <span class="cmd-label">Homebrew Cask（推荐）</span>
+              <div class="code-box">
+                <code id="mac-brew-cmd">brew install --cask lec-org/tap/orbit</code>
+                <button type="button" class="btn btn-glass btn-sm" data-copy-target="mac-brew-cmd">复制命令</button>
+              </div>
+            </div>
+            <div class="install-cmd-row">
+              <span class="cmd-label">手动拖入 DMG 后修复</span>
+              <div class="code-box">
+                <code id="mac-fix-cmd">xattr -cr /Applications/Orbit.app</code>
+                <button type="button" class="btn btn-glass btn-sm" data-copy-target="mac-fix-cmd">复制命令</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -499,9 +518,9 @@
             <span class="eco-title">LEC Icons 图标库</span>
             <span class="eco-host">@lec-space/icons</span>
           </a>
-          <a class="eco-card glass-panel" href="https://devtron.lecspace.top/dashboard/" target="_blank" rel="noopener noreferrer">
+          <a class="eco-card glass-panel" href="https://kube.lecspace.top/dashboard/" target="_blank" rel="noopener noreferrer">
             <span class="eco-title">Devtron 发布平台</span>
-            <span class="eco-host">devtron.lecspace.top</span>
+            <span class="eco-host">kube.lecspace.top</span>
           </a>
         </div>
       </section>

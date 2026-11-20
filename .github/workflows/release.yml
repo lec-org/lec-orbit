@@ -213,3 +213,71 @@ jobs:
           name: Orbit ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
           generate_release_notes: true
           files: artifacts/*
+      - name: 自动同步 Homebrew Tap Cask（lec-org/homebrew-tap）
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
+            echo "未配置 HOMEBREW_TAP_DEPLOY_KEY，跳过 Homebrew Tap 更新"
+            exit 0
+          fi
+          VERSION="${RELEASE_TAG#v}"
+          ARM_SHA="$(awk -v f="Orbit-${VERSION}-mac-arm64.dmg" '$2 == f { print $1 }' artifacts/SHA256SUMS.txt | head -n 1)"
+          X64_SHA="$(awk -v f="Orbit-${VERSION}-mac-x64.dmg" '$2 == f { print $1 }' artifacts/SHA256SUMS.txt | head -n 1)"
+          if [ -z "$ARM_SHA" ] || [ -z "$X64_SHA" ]; then
+            echo "未找到 macOS DMG SHA256，跳过 Homebrew Tap 更新"
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > ~/.ssh/homebrew_tap_key
+          chmod 600 ~/.ssh/homebrew_tap_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_key -o IdentitiesOnly=yes" \
+            git clone git@github.com:lec-org/homebrew-tap.git /tmp/homebrew-tap
+
+          cat > /tmp/homebrew-tap/Casks/orbit.rb <<EOF
+          cask "orbit" do
+            arch arm: "arm64", intel: "x64"
+
+            version "${VERSION}"
+            sha256 arm:   "${ARM_SHA}",
+                   intel: "${X64_SHA}"
+
+            url "https://github.com/lec-org/lec-orbit/releases/download/v#{version}/Orbit-#{version}-mac-#{arch}.dmg"
+            name "Orbit"
+            desc "LEC 软件工作室统一桌面工作台与 LecSSO 原生桌面认证器"
+            homepage "https://lec-org.github.io/lec-orbit/"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            app "Orbit.app"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-cr", "#{appdir}/Orbit.app"],
+                             sudo: false
+            end
+
+            zap trash: [
+              "~/Library/Application Support/Orbit",
+              "~/Library/Preferences/top.lecspace.orbit.plist",
+              "~/Library/Saved Application State/top.lecspace.orbit.savedState",
+            ]
+          end
+          EOF
+
+          cd /tmp/homebrew-tap
+          git config user.name "lec-orbit-bot"
+          git config user.email "bot@lecspace.top"
+          if ! git diff --quiet; then
+            git add Casks/orbit.rb
+            git commit -m "chore(cask): 同步 Orbit v${VERSION}"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_key -o IdentitiesOnly=yes" git push origin main
+          fi
