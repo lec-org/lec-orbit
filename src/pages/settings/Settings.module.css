@@ -184,3 +184,130 @@
   align-items: center;
   gap: 8px;
 }
+
+.wifiHeaderTags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wifiLead {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--orbit-text-muted);
+}
+
+.wifiActionBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.wifiPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+}
+
+.wifiPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wifiQuickBtns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wifiList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.wifiItem,
+.wifiSavedRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+}
+
+.wifiItem {
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.wifiItemSelected {
+  border-color: rgba(10, 132, 255, 0.45);
+  background: rgba(10, 132, 255, 0.06);
+}
+
+.wifiSavedRow {
+  justify-content: space-between;
+}
+
+.wifiItemMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wifiItemTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wifiSsid {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.wifiBssid {
+  font-family: var(--orbit-mono);
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--orbit-surface);
+}
+
+.wifiItemSub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+}
+
+.wifiSaveRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}

@@ -90,6 +90,7 @@ interface OrbitStoreState {
   pushOverlay: () => void;
   popOverlay: () => void;
   refreshDocRecents: (query?: string) => Promise<void>;
+  refreshNetworkStatus: (forceWifiScan?: boolean) => Promise<NetworkPolicyStatus | null>;
   refreshPunchData: (options?: { notifyOnError?: boolean }) => Promise<void>;
   refreshCardGame: (options?: { silent?: boolean }) => Promise<void>;
   setCardGame: (game: CardGameView) => void;
@@ -309,6 +310,17 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     set({ docRecents });
   },
 
+  refreshNetworkStatus: async (forceWifiScan = false) => {
+    if (!get().auth.authenticated) return null;
+    try {
+      const nextNetwork = await punchApi.fetchNetworkStatus(forceWifiScan);
+      set({ networkStatus: nextNetwork });
+      return nextNetwork;
+    } catch {
+      return get().networkStatus;
+    }
+  },
+
   refreshPunchData: async (options) => {
     if (!get().auth.authenticated) return;
     lastPunchSyncAt = Date.now();
@@ -436,7 +448,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   toggleCheckInOut: async () => {
     const { attendance, networkStatus } = get();
     const isCheckedIn = Boolean(attendance?.isCheckedIn);
-    if (!isCheckedIn && networkStatus && !networkStatus.allowed) {
+    if (!isCheckedIn && networkStatus && !networkStatus.allowed && !networkStatus.wifiFingerprintEnabled) {
       return {
         ok: false,
         message: networkStatus.reason || '当前网络不在工作室允许签到的白名单范围内。',
@@ -452,6 +464,9 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
         message: isCheckedIn ? '已签退，本次专注时长已记录。' : '签到成功，开始今日专注！',
       };
     } catch (err) {
+      if (err instanceof PunchApiError && err.status === 403) {
+        void get().refreshNetworkStatus(false);
+      }
       return {
         ok: false,
         message: err instanceof Error ? err.message : '考勤操作失败，请检查网络策略与登录状态。',

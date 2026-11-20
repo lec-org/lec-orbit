@@ -14,6 +14,7 @@ import {
 import { AuthService } from './auth/authService';
 import { parseOrbitProtocolUrl } from './auth/protocol';
 import { LocalDocHost } from './doc/localDocHost';
+import { scanNearbyWifi } from './network/wifiScanner';
 import { ConfigStore } from './storage/configStore';
 import { LocalDB } from './storage/localDb';
 import { SecretStore } from './storage/secretStore';
@@ -215,6 +216,16 @@ function registerIpcHandlers(): void {
       .parse(raw);
     trayManager.updatePunchSummary(summary);
     windowManager.updateFloatingPunchSummary(summary);
+  });
+  ipcMain.handle('orbit:system:scanWifi', (_e, raw) => {
+    const options = z
+      .object({
+        samples: z.number().int().min(1).max(5).optional(),
+        force: z.boolean().optional(),
+      })
+      .optional()
+      .parse(raw);
+    return scanNearbyWifi(options);
   });
   ipcMain.handle('orbit:system:getUpdateState', () => updater.getState());
   ipcMain.handle('orbit:system:checkUpdate', () => updater.check());

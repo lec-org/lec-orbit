@@ -24,6 +24,7 @@ import type { ThemePreference } from '@shared/ipc';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { useOrbitStore } from '@/stores/useOrbitStore';
+import { WifiFingerprintCard } from './WifiFingerprintCard';
 import styles from './Settings.module.css';
 
 export function SettingsPage(): JSX.Element {
@@ -336,6 +337,8 @@ export function SettingsPage(): JSX.Element {
           </div>
         </div>
       </Card>
+
+      {auth.authenticated && auth.isAdmin && <WifiFingerprintCard />}
 
       <Card title="本地存储与版本">
         <div className={styles.footerRow}>

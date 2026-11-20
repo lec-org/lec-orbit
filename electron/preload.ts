@@ -15,6 +15,7 @@ import type {
   TrayPunchSummary,
   UpdateAvatarUrlInput,
   UpdateCheckResult,
+  WifiScanOptions,
 } from '../src/shared/ipc';
 
 const bridge: OrbitBridge = {
@@ -84,6 +85,8 @@ const bridge: OrbitBridge = {
       ipcRenderer.invoke('orbit:system:notify', { title, body }),
     updateTrayPunch: (summary: TrayPunchSummary) =>
       ipcRenderer.invoke('orbit:system:updateTrayPunch', summary),
+    scanWifi: (options?: WifiScanOptions) =>
+      ipcRenderer.invoke('orbit:system:scanWifi', options ?? {}),
     getUpdateState: () => ipcRenderer.invoke('orbit:system:getUpdateState'),
     checkUpdate: () => ipcRenderer.invoke('orbit:system:checkUpdate'),
     downloadUpdate: () => ipcRenderer.invoke('orbit:system:downloadUpdate'),

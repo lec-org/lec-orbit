@@ -29,6 +29,9 @@ mac:
   icon: build/icon.icns
   artifactName: Orbit-${version}-mac-${arch}.${ext}
   category: public.app-category.productivity
+  extendInfo:
+    NSLocationUsageDescription: Orbit 仅在打卡校验与工作室环境指纹采集时读取周边 Wi-Fi 信号点（BSSID），不采集或上传精确地理位置坐标。
+    NSLocationWhenInUseUsageDescription: Orbit 仅在打卡校验与工作室环境指纹采集时读取周边 Wi-Fi 信号点（BSSID），不采集或上传精确地理位置坐标。
   target:
     - dmg
     - zip

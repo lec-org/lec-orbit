@@ -1,7 +1,8 @@
 /** LecPunch 今日专注主屏：Apple HIG 风格原生考勤计时卡片、网络白名单状态、本周考核与实时在岗伙伴。 */
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react';
 import { Avatar, Button, Card, Empty, Statistic, Switch, Tag } from '@lec-space/liquidglass';
-import { Clock3, Flame, ShieldCheck, Trophy, Users } from '@lec-space/icons';
+import { Clock3, Flame, RefreshCw, ShieldCheck, Trophy, Users } from '@lec-space/icons';
+import { Wifi } from 'lucide-react';
 import {
   formatClockDuration,
   formatReadableDuration,
@@ -22,11 +23,13 @@ export function PunchTodayPage(): JSX.Element {
   const weeklyStats = useOrbitStore((s) => s.weeklyStats);
   const points = useOrbitStore((s) => s.points);
   const toggleCheckInOut = useOrbitStore((s) => s.toggleCheckInOut);
+  const refreshNetworkStatus = useOrbitStore((s) => s.refreshNetworkStatus);
   const updateConfig = useOrbitStore((s) => s.updateConfig);
   const setLoginModalOpen = useOrbitStore((s) => s.setLoginModalOpen);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const [recheckingEnv, setRecheckingEnv] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamActiveMember | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ left: number; top: number; placement: 'top' | 'bottom' } | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -61,6 +64,29 @@ export function PunchTodayPage(): JSX.Element {
       statusLabel: auth.authenticated ? '未在打卡' : '未登录',
     });
   }, [attendance?.isCheckedIn, liveSessionSeconds, auth.authenticated]);
+
+  const handleRecheckEnvironment = async () => {
+    if (!auth.authenticated || recheckingEnv) return;
+    setRecheckingEnv(true);
+    const next = await refreshNetworkStatus(true);
+    setRecheckingEnv(false);
+    if (!next) return;
+    if (next.wifiFingerprintEnabled) {
+      notifyToast({
+        tone: next.allowed ? 'success' : 'info',
+        title: next.allowed ? '已识别工作室环境' : '未识别到工作室环境',
+        description: next.allowed
+          ? `命中 ${next.matchedCount ?? 0} 个工作室信号点，可正常签到 / 签退。`
+          : next.scanError || next.reason || '请确认身处工作室并开启本机 Wi-Fi 后重试。',
+      });
+    } else {
+      notifyToast({
+        tone: next.allowed ? 'success' : 'info',
+        title: next.allowed ? '当前网络允许签到' : '当前网络禁止签到',
+        description: next.clientIp ? `出口 IP：${next.clientIp}` : next.reason,
+      });
+    }
+  };
 
   const handleTogglePunch = async () => {
     if (!auth.authenticated) {
@@ -152,11 +178,36 @@ export function PunchTodayPage(): JSX.Element {
         </div>
         <div className={styles.headerActions}>
           {networkStatus ? (
-            <Tag tone={networkStatus.allowed ? 'success' : 'warning'} icon={<ShieldCheck size={14} />}>
-              {networkStatus.allowed
-                ? `允许签到网络${networkStatus.clientIp ? ` (${networkStatus.clientIp})` : ''}`
-                : '当前网络禁止签到（仅可浏览）'}
-            </Tag>
+            <button
+              type="button"
+              className={styles.statusTrigger}
+              onClick={() => void handleRecheckEnvironment()}
+              disabled={recheckingEnv}
+              title={networkStatus.scanError || networkStatus.reason || '点击重新检测当前工作室环境'}
+            >
+              <Tag
+                tone={networkStatus.allowed ? 'success' : 'warning'}
+                icon={
+                  recheckingEnv ? (
+                    <RefreshCw size={14} className={styles.spinIcon} />
+                  ) : networkStatus.wifiFingerprintEnabled ? (
+                    <Wifi size={14} />
+                  ) : (
+                    <ShieldCheck size={14} />
+                  )
+                }
+              >
+                {recheckingEnv
+                  ? '正在检测工作室环境…'
+                  : networkStatus.wifiFingerprintEnabled
+                    ? networkStatus.allowed
+                      ? `已识别工作室环境（命中 ${networkStatus.matchedCount ?? 0} 个信号点）`
+                      : '未在工作室环境内（点击重新扫描）'
+                    : networkStatus.allowed
+                      ? `允许签到网络${networkStatus.clientIp ? ` (${networkStatus.clientIp})` : ''}`
+                      : '当前网络禁止签到（仅可浏览）'}
+              </Tag>
+            </button>
           ) : (
             <Tag tone="neutral">等待同步网络策略</Tag>
           )}
@@ -183,7 +234,13 @@ export function PunchTodayPage(): JSX.Element {
               destructive={Boolean(attendance?.isCheckedIn)}
               loading={busy}
               onClick={handleTogglePunch}
-              disabled={!auth.authenticated ? false : !attendance?.isCheckedIn && networkStatus?.allowed === false}
+              disabled={
+                !auth.authenticated
+                  ? false
+                  : !attendance?.isCheckedIn &&
+                    networkStatus?.allowed === false &&
+                    !networkStatus?.wifiFingerprintEnabled
+              }
             >
               {!auth.authenticated
                 ? '登录 LecSSO 后开始签到'
@@ -191,6 +248,15 @@ export function PunchTodayPage(): JSX.Element {
                   ? '结束专注并签退'
                   : '开始今日签到'}
             </Button>
+            {auth.authenticated &&
+              networkStatus?.wifiFingerprintEnabled &&
+              !networkStatus.allowed && (
+                <span className={styles.envHint}>
+                  {networkStatus.scanError ||
+                    networkStatus.reason ||
+                    '请确认在工作室内并开启 Wi-Fi 开关（无需连接热点）'}
+                </span>
+              )}
           </div>
         </Card>
 

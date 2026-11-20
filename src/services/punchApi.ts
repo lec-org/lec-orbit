@@ -16,7 +16,9 @@ import {
   type TeamActiveMember,
   type TeamEventItem,
   type TeamWeeklyRankingItem,
+  type UpdateWifiFingerprintInput,
   type WeeklyReportItem,
+  type WifiFingerprintConfig,
 } from '@shared/punch';
 import { getOrbitClient } from './orbitClient';
 
@@ -72,6 +74,7 @@ export const PUNCH_ENDPOINTS = {
   checkOut: '/attendance/check-out',
   teamActive: '/attendance/team-active',
   networkStatus: '/network-policy/current-status',
+  adminWifiFingerprint: '/network-policy/admin/wifi-fingerprint',
   myWeeklyStats: '/stats/me/weekly',
   teamWeeklyStats: '/stats/team/current-week',
   myRecords: '/records/me',
@@ -145,6 +148,37 @@ function unwrapArray<T>(data: unknown, key: string): T[] {
   return [];
 }
 
+interface WifiScanPayloadSample {
+  bssid: string;
+  ssid?: string;
+  rssi?: number;
+}
+
+async function collectWifiScanForApi(force: boolean): Promise<{
+  samples: WifiScanPayloadSample[];
+  error?: string;
+}> {
+  try {
+    const res = await getOrbitClient().system.scanWifi({ samples: 1, force });
+    const samples: WifiScanPayloadSample[] = (res.networks ?? [])
+      .slice(0, 120)
+      .map((item) => ({
+        bssid: item.bssid,
+        ...(item.ssid ? { ssid: item.ssid.slice(0, 64) } : {}),
+        rssi: item.rssi,
+      }));
+    return {
+      samples,
+      error: res.ok ? undefined : res.error,
+    };
+  } catch (err) {
+    return {
+      samples: [],
+      error: err instanceof Error ? err.message : '读取周边 Wi-Fi 信号失败。',
+    };
+  }
+}
+
 export const punchApi = {
   async fetchCurrentUser(): Promise<PunchUser> {
     const { data } = await client.get<PunchUser>(PUNCH_ENDPOINTS.me);
@@ -186,27 +220,126 @@ export const punchApi = {
   },
 
   async checkIn(): Promise<AttendanceSnapshot> {
-    await client.post(PUNCH_ENDPOINTS.checkIn);
+    const scan = await collectWifiScanForApi(true);
+    try {
+      await client.post(
+        PUNCH_ENDPOINTS.checkIn,
+        scan.samples.length > 0 ? { wifiScan: scan.samples } : {},
+      );
+    } catch (err) {
+      if (err instanceof PunchApiError && err.status === 403 && scan.samples.length === 0 && scan.error) {
+        throw new PunchApiError(`${err.message}（${scan.error}）`, 403);
+      }
+      throw err;
+    }
     return this.fetchAttendance();
   },
 
   async checkOut(): Promise<AttendanceSnapshot> {
-    await client.post(PUNCH_ENDPOINTS.checkOut);
+    const scan = await collectWifiScanForApi(true);
+    try {
+      await client.post(
+        PUNCH_ENDPOINTS.checkOut,
+        scan.samples.length > 0 ? { wifiScan: scan.samples } : {},
+      );
+    } catch (err) {
+      if (err instanceof PunchApiError && err.status === 403 && scan.samples.length === 0 && scan.error) {
+        throw new PunchApiError(`${err.message}（${scan.error}）`, 403);
+      }
+      throw err;
+    }
     return this.fetchAttendance();
   },
 
-  async fetchNetworkStatus(): Promise<NetworkPolicyStatus> {
-    const { data } = await client.get<{
-      isAllowed?: boolean;
-      allowed?: boolean;
-      clientIp?: string;
-      reason?: string;
-    }>(PUNCH_ENDPOINTS.networkStatus);
-    const allowed = Boolean(data.isAllowed ?? data.allowed);
+  async fetchNetworkStatus(forceWifiScan = false): Promise<NetworkPolicyStatus> {
+    const scan = await collectWifiScanForApi(forceWifiScan);
+    try {
+      const { data } = await client.post<{
+        isAllowed?: boolean;
+        allowed?: boolean;
+        ipAllowed?: boolean;
+        clientIp?: string;
+        reason?: string;
+        wifiFingerprintEnabled?: boolean;
+        wifiAllowed?: boolean;
+        matchedCount?: number;
+        requiredMatchCount?: number;
+        configuredAnchorCount?: number;
+      }>(
+        PUNCH_ENDPOINTS.networkStatus,
+        scan.samples.length > 0 ? { wifiScan: scan.samples } : {},
+      );
+      const allowed = Boolean(data.isAllowed ?? data.allowed);
+      const wifiFingerprintEnabled = Boolean(data.wifiFingerprintEnabled);
+      const wifiAllowed =
+        typeof data.wifiAllowed === 'boolean' ? data.wifiAllowed : allowed;
+      const reason =
+        data.reason ||
+        (allowed
+          ? undefined
+          : wifiFingerprintEnabled
+            ? scan.error || '未识别到工作室周边 Wi-Fi 环境指纹。'
+            : '当前出口网络未在工作室考勤白名单中。');
+      return {
+        allowed,
+        ipAllowed: typeof data.ipAllowed === 'boolean' ? data.ipAllowed : allowed,
+        clientIp: data.clientIp,
+        reason,
+        wifiFingerprintEnabled,
+        wifiAllowed,
+        matchedCount: typeof data.matchedCount === 'number' ? data.matchedCount : 0,
+        requiredMatchCount:
+          typeof data.requiredMatchCount === 'number' ? data.requiredMatchCount : 0,
+        configuredAnchorCount:
+          typeof data.configuredAnchorCount === 'number' ? data.configuredAnchorCount : 0,
+        scanError: scan.samples.length === 0 ? scan.error : undefined,
+      };
+    } catch (err) {
+      // 兼容尚未部署 POST /network-policy/current-status 的旧版后端
+      if (err instanceof PunchApiError && (err.status === 404 || err.status === 405)) {
+        const { data } = await client.get<{
+          isAllowed?: boolean;
+          allowed?: boolean;
+          clientIp?: string;
+          reason?: string;
+        }>(PUNCH_ENDPOINTS.networkStatus);
+        const allowed = Boolean(data.isAllowed ?? data.allowed);
+        return {
+          allowed,
+          clientIp: data.clientIp,
+          reason: data.reason || (allowed ? undefined : '当前出口网络未在工作室考勤白名单中。'),
+        };
+      }
+      throw err;
+    }
+  },
+
+  async fetchWifiFingerprintConfig(): Promise<WifiFingerprintConfig> {
+    const { data } = await client.get<WifiFingerprintConfig>(PUNCH_ENDPOINTS.adminWifiFingerprint);
     return {
-      allowed,
-      clientIp: data.clientIp,
-      reason: data.reason || (allowed ? undefined : '当前出口网络未在工作室考勤白名单中。'),
+      teamId: data.teamId ?? '',
+      enabled: Boolean(data.enabled),
+      anchors: Array.isArray(data.anchors) ? data.anchors : [],
+      minMatchCount: typeof data.minMatchCount === 'number' ? data.minMatchCount : 2,
+      minRssi: typeof data.minRssi === 'number' ? data.minRssi : -82,
+      updatedAt: data.updatedAt ?? null,
+    };
+  },
+
+  async updateWifiFingerprintConfig(
+    input: UpdateWifiFingerprintInput,
+  ): Promise<WifiFingerprintConfig> {
+    const { data } = await client.patch<WifiFingerprintConfig>(
+      PUNCH_ENDPOINTS.adminWifiFingerprint,
+      input,
+    );
+    return {
+      teamId: data.teamId ?? '',
+      enabled: Boolean(data.enabled),
+      anchors: Array.isArray(data.anchors) ? data.anchors : [],
+      minMatchCount: typeof data.minMatchCount === 'number' ? data.minMatchCount : 2,
+      minRssi: typeof data.minRssi === 'number' ? data.minRssi : -82,
+      updatedAt: data.updatedAt ?? null,
     };
   },
 

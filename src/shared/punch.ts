@@ -26,6 +26,36 @@ export interface NetworkPolicyStatus {
   clientIp?: string;
   reason?: string;
   policyMode?: string;
+  ipAllowed?: boolean;
+  wifiFingerprintEnabled?: boolean;
+  wifiAllowed?: boolean;
+  matchedCount?: number;
+  requiredMatchCount?: number;
+  configuredAnchorCount?: number;
+  scanError?: string;
+}
+
+export interface WifiAnchorItem {
+  bssid: string;
+  ssid?: string;
+  sampleRssi?: number;
+}
+
+export interface WifiFingerprintConfig {
+  teamId: string;
+  enabled: boolean;
+  anchors: WifiAnchorItem[];
+  minMatchCount: number;
+  minRssi: number;
+  updatedAt: string | null;
+}
+
+export interface UpdateWifiFingerprintInput {
+  enabled: boolean;
+  anchors: WifiAnchorItem[];
+  minMatchCount?: number;
+  minRssi?: number;
+  merge?: boolean;
 }
 
 export interface TeamActiveMember {

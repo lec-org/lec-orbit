@@ -216,6 +216,31 @@ export interface TrayPunchSummary {
   statusLabel: string;
 }
 
+export interface ScannedWifiNetwork {
+  bssid: string;
+  ssid: string;
+  rssi: number;
+  seenCount: number;
+  totalRounds: number;
+  isLikelyHotspot: boolean;
+}
+
+export interface WifiScanOptions {
+  /** 连续采样轮数（1~5，默认 1；队长采集工作室基线传 3）。 */
+  samples?: number;
+  /** 是否跳过 20s 缓存强制实时扫描。 */
+  force?: boolean;
+}
+
+export interface WifiScanResult {
+  ok: boolean;
+  platform: NodeJS.Platform;
+  scannedAt: number;
+  rounds: number;
+  networks: ScannedWifiNetwork[];
+  error?: string;
+}
+
 export interface FloatingBallState extends TrayPunchSummary {
   expanded: boolean;
   theme: ThemePreference;
@@ -266,6 +291,7 @@ export interface OrbitBridge {
     copyText: (text: string) => Promise<void>;
     notify: (title: string, body: string) => Promise<void>;
     updateTrayPunch: (summary: TrayPunchSummary) => Promise<void>;
+    scanWifi: (options?: WifiScanOptions) => Promise<WifiScanResult>;
     getUpdateState: () => Promise<UpdateCheckResult>;
     checkUpdate: () => Promise<UpdateCheckResult>;
     downloadUpdate: () => Promise<UpdateCheckResult>;
