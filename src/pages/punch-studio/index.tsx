@@ -4,6 +4,7 @@ import { Avatar, Button, Card, Empty, SegmentedControl, Tag } from '@lec-space/l
 import { CalendarDays, ExternalLink, Trophy } from '@lec-space/icons';
 import { getOrbitEndpoints } from '@shared/env';
 import { formatReadableDuration } from '@shared/punch';
+import { TitleBadgeList } from '@/components/TitleBadge';
 import { getOrbitClient } from '@/services/orbitClient';
 import { useOrbitStore } from '@/stores/useOrbitStore';
 import styles from './PunchStudio.module.css';
@@ -68,7 +69,10 @@ export function PunchStudioPage(): JSX.Element {
                     <span className={styles.rankIndex}>{item.rank ?? idx + 1}</span>
                     <Avatar src={item.avatar} name={item.realName || item.displayName} size="small" />
                     <div>
-                      <div className={styles.rankName}>{item.displayName}</div>
+                      <div className={styles.rankNameRow}>
+                        <span className={styles.rankName}>{item.displayName}</span>
+                        <TitleBadgeList titles={item.titles} size="xs" maxVisible={3} />
+                      </div>
                       <div className={styles.rankTeam}>{item.teamName || '工作室成员'}</div>
                     </div>
                   </div>

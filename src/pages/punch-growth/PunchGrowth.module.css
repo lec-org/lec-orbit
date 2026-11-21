@@ -82,9 +82,90 @@
   color: var(--orbit-accent);
 }
 
+.titlesSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.titleCardHeading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.equippedPreviewRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.titlesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.titleCard {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.titleCardUnlocked {
+  background: var(--orbit-surface-strong);
+}
+
+.titleCardEquipped {
+  border-color: rgba(10, 132, 255, 0.45);
+  box-shadow: 0 6px 20px rgba(10, 132, 255, 0.08);
+}
+
+.titleCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.proposerTag {
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+}
+
+.titleDesc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--orbit-text);
+}
+
+.titleCardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.titleProgress {
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
 @media (max-width: 980px) {
   .twoCol,
-  .metricGrid {
+  .metricGrid,
+  .titlesGrid {
     grid-template-columns: 1fr;
   }
 }

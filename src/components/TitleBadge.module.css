@@ -1,0 +1,206 @@
+.list {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  vertical-align: middle;
+  transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+
+.dimmed {
+  opacity: 0.56;
+  filter: saturate(0.45);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.label {
+  letter-spacing: 0.01em;
+}
+
+.size_xs {
+  padding: 3px 7px;
+  font-size: 11px;
+  gap: 3px;
+}
+
+.size_sm {
+  padding: 4px 9px;
+  font-size: 12px;
+  gap: 4px;
+}
+
+.size_md {
+  padding: 6px 11px;
+  font-size: 13px;
+  gap: 5px;
+}
+
+/* 1. 打卡之星 — 琥珀金 */
+.theme_amber {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(251, 191, 36, 0.24));
+  border-color: rgba(217, 119, 6, 0.34);
+  color: #b45309;
+}
+:global([data-theme='dark']) .theme_amber {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.24), rgba(251, 191, 36, 0.16));
+  border-color: rgba(251, 191, 36, 0.38);
+  color: #fcd34d;
+}
+
+/* 2. 全勤之王 — 鎏金橙 */
+.theme_gold {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.22), rgba(249, 115, 22, 0.2));
+  border-color: rgba(234, 88, 12, 0.36);
+  color: #c2410c;
+}
+:global([data-theme='dark']) .theme_gold {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.24), rgba(251, 146, 60, 0.22));
+  border-color: rgba(253, 186, 116, 0.42);
+  color: #fed7aa;
+}
+
+/* 3. 金将军 — 熔岩烈焰红橙 */
+.theme_crimson {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(249, 115, 22, 0.22));
+  border-color: rgba(220, 38, 38, 0.34);
+  color: #b91c1c;
+}
+:global([data-theme='dark']) .theme_crimson {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.28), rgba(249, 115, 22, 0.22));
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fca5a5;
+}
+
+/* 4. 全勤之星 — 翡翠绿 */
+.theme_emerald {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(5, 150, 105, 0.3);
+  color: #047857;
+}
+:global([data-theme='dark']) .theme_emerald {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(52, 211, 153, 0.36);
+  color: #6ee7b7;
+}
+
+/* 5. 卡点王 — 晴空青 */
+.theme_cyan {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(8, 145, 178, 0.3);
+  color: #0e7490;
+}
+:global([data-theme='dark']) .theme_cyan {
+  background: rgba(6, 182, 212, 0.22);
+  border-color: rgba(34, 211, 238, 0.36);
+  color: #67e8f9;
+}
+
+/* 6. 早起鸟 — 晨曦暖黄 */
+.theme_sun {
+  background: rgba(250, 204, 21, 0.22);
+  border-color: rgba(202, 138, 4, 0.32);
+  color: #a16207;
+}
+:global([data-theme='dark']) .theme_sun {
+  background: rgba(250, 204, 21, 0.22);
+  border-color: rgba(253, 224, 71, 0.36);
+  color: #fef08a;
+}
+
+/* 7. 夜猫子 — 午夜靛蓝 */
+.theme_indigo {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(79, 70, 229, 0.32);
+  color: #4338ca;
+}
+:global([data-theme='dark']) .theme_indigo {
+  background: rgba(99, 102, 241, 0.26);
+  border-color: rgba(129, 140, 248, 0.42);
+  color: #c7d2fe;
+}
+
+/* 8. 传奇耐通王 — 赛博电光紫 */
+.theme_violet {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(192, 38, 211, 0.18));
+  border-color: rgba(124, 58, 237, 0.36);
+  color: #6d28d9;
+}
+:global([data-theme='dark']) .theme_violet {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.28), rgba(217, 70, 239, 0.22));
+  border-color: rgba(196, 181, 253, 0.42);
+  color: #e9d5ff;
+}
+
+/* 9. 吕洞宾 — 绯红玫粉 */
+.theme_rose {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: rgba(225, 29, 72, 0.3);
+  color: #be123c;
+}
+:global([data-theme='dark']) .theme_rose {
+  background: rgba(244, 63, 94, 0.24);
+  border-color: rgba(251, 113, 133, 0.4);
+  color: #fda4af;
+}
+
+/* 10. 想吃紫蛋了 — 浓郁紫蛋 */
+.theme_purple {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(147, 51, 234, 0.38);
+  color: #7e22ce;
+}
+:global([data-theme='dark']) .theme_purple {
+  background: rgba(168, 85, 247, 0.28);
+  border-color: rgba(216, 180, 254, 0.42);
+  color: #e9d5ff;
+}
+
+/* 11. 相思了 — 猩红预警 */
+.theme_alert {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(220, 38, 38, 0.42);
+  color: #dc2626;
+  animation: alertPulse 2.4s ease-in-out infinite;
+}
+:global([data-theme='dark']) .theme_alert {
+  background: rgba(239, 68, 68, 0.26);
+  border-color: rgba(248, 113, 113, 0.48);
+  color: #fecaca;
+}
+
+@keyframes alertPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+  }
+}

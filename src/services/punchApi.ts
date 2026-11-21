@@ -8,6 +8,8 @@ import {
   type CardGameActionInput,
   type CardGameActionResponse,
   type CardGameView,
+  type MemberTitleBadge,
+  type MyTitlesView,
   type MyWeeklyStats,
   type NetworkPolicyStatus,
   type PointsSummary,
@@ -83,6 +85,8 @@ export const PUNCH_ENDPOINTS = {
   teamEvents: '/team-events/events',
   notifications: '/notifications/me',
   ackNotification: (id: string) => `/notifications/${encodeURIComponent(id)}/ack`,
+  titlesMe: '/titles/me',
+  titlesEquip: '/titles/me/equip',
   cardsMe: '/cards/me',
   cardsActions: '/cards/actions',
   cardsGiftsAck: '/cards/gifts/ack',
@@ -146,6 +150,23 @@ function unwrapArray<T>(data: unknown, key: string): T[] {
     if (Array.isArray(value)) return value as T[];
   }
   return [];
+}
+
+function normalizeTitleBadges(raw: unknown): MemberTitleBadge[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .filter((item) => typeof item.id === 'string' && typeof item.name === 'string')
+    .map((item) => ({
+      id: String(item.id),
+      name: String(item.name),
+      description: typeof item.description === 'string' ? item.description : '',
+      proposer: typeof item.proposer === 'string' ? item.proposer : 'LEC',
+      category: (item.category as MemberTitleBadge['category']) ?? 'honor',
+      forced: Boolean(item.forced),
+      icon: (item.icon as MemberTitleBadge['icon']) ?? 'crown',
+      theme: (item.theme as MemberTitleBadge['theme']) ?? 'amber',
+    }));
 }
 
 interface WifiScanPayloadSample {
@@ -375,6 +396,7 @@ export const punchApi = {
               : undefined,
         checkedInAt: String(item.checkInAt ?? item.checkedInAt ?? new Date().toISOString()),
         durationSeconds: Number(item.elapsedSeconds ?? item.durationSeconds ?? 0),
+        titles: normalizeTitleBadges(item.titles),
       };
     });
   },
@@ -449,6 +471,7 @@ export const punchApi = {
         totalDurationSeconds: Number(item.totalDurationSeconds ?? 0),
         rank: Number(item.rank ?? idx + 1),
         qualified: Boolean(item.assessmentComplete ?? item.qualified),
+        titles: normalizeTitleBadges(item.titles),
       };
     });
   },
@@ -535,6 +558,26 @@ export const punchApi = {
 
   async acknowledgeNotification(id: string): Promise<void> {
     await client.patch(PUNCH_ENDPOINTS.ackNotification(id));
+  },
+
+  async fetchMyTitles(): Promise<MyTitlesView> {
+    const { data } = await client.get<MyTitlesView>(PUNCH_ENDPOINTS.titlesMe);
+    return {
+      weekKey: data.weekKey ?? '',
+      equippedTitleId: data.equippedTitleId ?? null,
+      displayTitles: normalizeTitleBadges(data.displayTitles),
+      catalog: Array.isArray(data.catalog) ? data.catalog : [],
+    };
+  },
+
+  async equipTitle(titleId: string | null): Promise<MyTitlesView> {
+    const { data } = await client.patch<MyTitlesView>(PUNCH_ENDPOINTS.titlesEquip, { titleId });
+    return {
+      weekKey: data.weekKey ?? '',
+      equippedTitleId: data.equippedTitleId ?? null,
+      displayTitles: normalizeTitleBadges(data.displayTitles),
+      catalog: Array.isArray(data.catalog) ? data.catalog : [],
+    };
   },
 
   async fetchCardGame(): Promise<CardGameView> {

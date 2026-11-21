@@ -13,6 +13,7 @@ import type {
   AttendanceRecordItem,
   AttendanceSnapshot,
   CardGameView,
+  MyTitlesView,
   MyWeeklyStats,
   NetworkPolicyStatus,
   PointsSummary,
@@ -68,6 +69,7 @@ interface OrbitStoreState {
   teamRanking: TeamWeeklyRankingItem[];
   teamEvents: TeamEventItem[];
   notifications: PunchNotificationItem[];
+  myTitles: MyTitlesView | null;
 
   /** Orbit Go 后端实时公告（含 IM 已读回执）与跨应用通知总线 */
   orbitServerOnline: boolean;
@@ -98,6 +100,7 @@ interface OrbitStoreState {
   syncStaleData: (minIntervalMs?: number) => void;
   applyOrbitWsEvent: (event: OrbitWsEvent) => void;
   toggleCheckInOut: () => Promise<{ ok: boolean; message: string; status?: number }>;
+  equipTitle: (titleId: string | null) => Promise<void>;
   ackNotification: (id: string) => Promise<void>;
 }
 
@@ -158,6 +161,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   teamRanking: [],
   teamEvents: [],
   notifications: [],
+  myTitles: null,
   orbitServerOnline: false,
   orbitAnnouncements: [],
   orbitNotifications: [],
@@ -256,6 +260,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
         teamRanking: [],
         teamEvents: [],
         notifications: [],
+        myTitles: null,
         orbitServerOnline: false,
         orbitAnnouncements: [],
         orbitNotifications: [],
@@ -336,6 +341,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
         punchApi.fetchTeamWeeklyRanking(),
         punchApi.fetchTeamEvents(),
         punchApi.fetchNotifications('all', 30),
+        punchApi.fetchMyTitles(),
       ]);
       const [
         attendance,
@@ -347,6 +353,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
         teamRanking,
         teamEvents,
         notifications,
+        myTitles,
       ] = results;
 
       const rejected = results.filter(
@@ -433,6 +440,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
         teamRanking: teamRanking.status === 'fulfilled' ? teamRanking.value : get().teamRanking,
         teamEvents: teamEvents.status === 'fulfilled' ? teamEvents.value : get().teamEvents,
         notifications: notifications.status === 'fulfilled' ? notifications.value : get().notifications,
+        myTitles: myTitles.status === 'fulfilled' ? myTitles.value : get().myTitles,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : '拉取 LecPunch 数据失败。';
@@ -634,6 +642,26 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
             : n,
         ),
       }));
+    }
+  },
+
+  equipTitle: async (titleId) => {
+    try {
+      const updated = await punchApi.equipTitle(titleId);
+      set({ myTitles: updated });
+      const activeName = updated.displayTitles.find((t) => !t.forced)?.name;
+      notifyToast({
+        tone: 'success',
+        title: titleId ? `已佩戴「${activeName ?? '新称号'}」` : '已恢复自动佩戴',
+        description: '你的工作室在岗卡片与团队周榜已同步更新。',
+      });
+      void get().refreshPunchData();
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '切换称号失败',
+        description: err instanceof Error ? err.message : '请稍后重试。',
+      });
     }
   },
 

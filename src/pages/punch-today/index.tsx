@@ -9,6 +9,7 @@ import {
   getCurrentIsoWeek,
   type TeamActiveMember,
 } from '@shared/punch';
+import { TitleBadgeList } from '@/components/TitleBadge';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { useOrbitStore } from '@/stores/useOrbitStore';
@@ -22,8 +23,10 @@ export function PunchTodayPage(): JSX.Element {
   const teamActive = useOrbitStore((s) => s.teamActive);
   const weeklyStats = useOrbitStore((s) => s.weeklyStats);
   const points = useOrbitStore((s) => s.points);
+  const myTitles = useOrbitStore((s) => s.myTitles);
   const toggleCheckInOut = useOrbitStore((s) => s.toggleCheckInOut);
   const refreshNetworkStatus = useOrbitStore((s) => s.refreshNetworkStatus);
+  const setActiveTab = useOrbitStore((s) => s.setActiveTab);
   const updateConfig = useOrbitStore((s) => s.updateConfig);
   const setLoginModalOpen = useOrbitStore((s) => s.setLoginModalOpen);
 
@@ -171,7 +174,17 @@ export function PunchTodayPage(): JSX.Element {
     <div className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1 className={styles.heading}>今日专注</h1>
+          <div className={styles.headingRow}>
+            <h1 className={styles.heading}>今日专注</h1>
+            {myTitles && myTitles.displayTitles.length > 0 && (
+              <TitleBadgeList
+                titles={myTitles.displayTitles}
+                size="sm"
+                maxVisible={3}
+                onBadgeClick={() => setActiveTab('punch-growth')}
+              />
+            )}
+          </div>
           <p className={styles.subheading}>
             {todayLabel} · {getCurrentIsoWeek()}
           </p>
@@ -319,7 +332,10 @@ export function PunchTodayPage(): JSX.Element {
               >
                 <Avatar src={member.avatar} name={member.realName || member.displayName} size="regular" />
                 <div className={styles.presenceMeta}>
-                  <span className={styles.presenceName}>{member.displayName}</span>
+                  <div className={styles.presenceNameRow}>
+                    <span className={styles.presenceName}>{member.displayName}</span>
+                    <TitleBadgeList titles={member.titles} size="xs" maxVisible={1} />
+                  </div>
                   <span className={styles.presenceSub}>
                     <Flame size={12} /> {member.teamName || '工作室成员'}
                   </span>
@@ -350,6 +366,12 @@ export function PunchTodayPage(): JSX.Element {
               <p className={styles.popoverSub}>{selectedMember.teamName || 'LEC 工作室正式成员'}</p>
             </div>
           </div>
+
+          {selectedMember.titles && selectedMember.titles.length > 0 && (
+            <div className={styles.popoverTitles}>
+              <TitleBadgeList titles={selectedMember.titles} size="xs" maxVisible={4} />
+            </div>
+          )}
 
           <div className={styles.popoverRows}>
             <div className={styles.popoverInfoRow}>

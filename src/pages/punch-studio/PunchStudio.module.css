@@ -76,6 +76,13 @@
   color: var(--orbit-text-muted);
 }
 
+.rankNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .rankName,
 .eventTitle {
   font-size: 14px;

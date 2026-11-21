@@ -58,6 +58,58 @@ export interface UpdateWifiFingerprintInput {
   merge?: boolean;
 }
 
+export type TitleCategory = 'honor' | 'routine' | 'fun' | 'debuff';
+
+export type TitleIconKey =
+  | 'crown'
+  | 'calendar-check'
+  | 'trophy'
+  | 'moon'
+  | 'sunrise'
+  | 'zap'
+  | 'crosshair'
+  | 'flame'
+  | 'egg'
+  | 'swords'
+  | 'hourglass';
+
+export type TitleThemeKey =
+  | 'amber'
+  | 'emerald'
+  | 'gold'
+  | 'indigo'
+  | 'sun'
+  | 'violet'
+  | 'cyan'
+  | 'crimson'
+  | 'purple'
+  | 'rose'
+  | 'alert';
+
+export interface MemberTitleBadge {
+  id: string;
+  name: string;
+  description: string;
+  proposer: string;
+  category: TitleCategory;
+  forced: boolean;
+  icon: TitleIconKey;
+  theme: TitleThemeKey;
+}
+
+export interface TitleEvaluationItem extends MemberTitleBadge {
+  unlocked: boolean;
+  equipped: boolean;
+  progressText?: string;
+}
+
+export interface MyTitlesView {
+  weekKey: string;
+  equippedTitleId: string | null;
+  displayTitles: MemberTitleBadge[];
+  catalog: TitleEvaluationItem[];
+}
+
 export interface TeamActiveMember {
   userId: string;
   displayName: string;
@@ -67,6 +119,7 @@ export interface TeamActiveMember {
   teamName?: string;
   checkedInAt: string;
   durationSeconds?: number;
+  titles?: MemberTitleBadge[];
 }
 
 export interface AttendanceRecordItem {
@@ -102,6 +155,7 @@ export interface TeamWeeklyRankingItem {
   totalDurationSeconds: number;
   qualified?: boolean;
   rank?: number;
+  titles?: MemberTitleBadge[];
 }
 
 export interface PointsSummary {

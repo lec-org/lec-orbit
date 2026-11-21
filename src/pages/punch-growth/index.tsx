@@ -12,14 +12,16 @@ import {
   type ActivityDay,
 } from '@lec-space/liquidglass';
 import { Save } from '@lec-space/icons';
+import { Award, Check, Sparkles } from 'lucide-react';
 import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
+import { TitleBadge, TitleBadgeList } from '@/components/TitleBadge';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { punchApi } from '@/services/punchApi';
 import { useOrbitStore } from '@/stores/useOrbitStore';
 import styles from './PunchGrowth.module.css';
 
-type GrowthSegment = 'calendar' | 'assessment' | 'report';
+type GrowthSegment = 'calendar' | 'titles' | 'assessment' | 'report';
 
 function currentYearMonth(): string {
   const d = new Date();
@@ -36,8 +38,11 @@ export function PunchGrowthPage(): JSX.Element {
   const records = useOrbitStore((s) => s.records);
   const weeklyStats = useOrbitStore((s) => s.weeklyStats);
   const points = useOrbitStore((s) => s.points);
+  const myTitles = useOrbitStore((s) => s.myTitles);
+  const equipTitle = useOrbitStore((s) => s.equipTitle);
 
   const [segment, setSegment] = useState<GrowthSegment>('calendar');
+  const [equippingId, setEquippingId] = useState<string | null>(null);
   const [month, setMonth] = useState(currentYearMonth);
   const [selectedDate, setSelectedDate] = useState(todayIso);
 
@@ -125,11 +130,114 @@ export function PunchGrowthPage(): JSX.Element {
           onValueChange={(v) => setSegment(v as GrowthSegment)}
           items={[
             { value: 'calendar', label: '打卡日历' },
+            { value: 'titles', label: '称号图鉴' },
             { value: 'assessment', label: '考核与积分' },
             { value: 'report', label: '周报工作台' },
           ]}
         />
       </header>
+
+      {segment === 'titles' && (
+        <div className={styles.titlesSection}>
+          <Card
+            title={
+              <span className={styles.titleCardHeading}>
+                <Award size={16} /> 当前对外展示称号
+              </span>
+            }
+            description="佩戴的荣誉称号会实时展示在今日专注、工作室在岗与本周排行榜中；状态预警类称号将自动亮牌。"
+            extra={
+              myTitles?.equippedTitleId ? (
+                <Button
+                  variant="glass"
+                  size="small"
+                  loading={equippingId === '__auto__'}
+                  onClick={async () => {
+                    setEquippingId('__auto__');
+                    await equipTitle(null);
+                    setEquippingId(null);
+                  }}
+                >
+                  恢复自动佩戴
+                </Button>
+              ) : (
+                <Tag tone="neutral" icon={<Sparkles size={13} />}>
+                  已解锁 {myTitles?.catalog.filter((c) => c.unlocked).length ?? 0} /{' '}
+                  {myTitles?.catalog.length ?? 11}
+                </Tag>
+              )
+            }
+          >
+            {myTitles && myTitles.displayTitles.length > 0 ? (
+              <div className={styles.equippedPreviewRow}>
+                <TitleBadgeList titles={myTitles.displayTitles} size="md" maxVisible={5} />
+              </div>
+            ) : (
+              <p className={styles.muted}>
+                暂未佩戴任何称号，达成下方任意条件后即可自动点亮专属彩色标签！
+              </p>
+            )}
+          </Card>
+
+          {!myTitles || myTitles.catalog.length === 0 ? (
+            <Card>
+              <Empty
+                title={auth.authenticated ? '正在同步工作室称号图鉴…' : '登录后查看你的称号进度'}
+                description="如刚完成服务端更新，请稍候片刻或切换页面刷新"
+              />
+            </Card>
+          ) : (
+            <div className={styles.titlesGrid}>
+              {myTitles.catalog.map((item) => {
+                const isBusy = equippingId === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    className={`${styles.titleCard} ${
+                      item.unlocked ? styles.titleCardUnlocked : ''
+                    } ${item.equipped ? styles.titleCardEquipped : ''}`}
+                  >
+                    <div className={styles.titleCardTop}>
+                      <TitleBadge title={item} size="md" dimmed={!item.unlocked} />
+                      <span className={styles.proposerTag}>提出人：{item.proposer}</span>
+                    </div>
+                    <p className={styles.titleDesc}>{item.description}</p>
+                    <div className={styles.titleCardFooter}>
+                      <span className={styles.titleProgress}>
+                        {item.progressText || (item.unlocked ? '已解锁' : '未解锁')}
+                      </span>
+                      {item.forced ? (
+                        <Tag tone={item.unlocked ? 'warning' : 'neutral'}>
+                          {item.unlocked ? '自动亮牌中' : '状态预警'}
+                        </Tag>
+                      ) : item.equipped ? (
+                        <Tag tone="success" icon={<Check size={12} />}>
+                          佩戴中
+                        </Tag>
+                      ) : item.unlocked ? (
+                        <Button
+                          variant="filled"
+                          size="small"
+                          loading={isBusy}
+                          onClick={async () => {
+                            setEquippingId(item.id);
+                            await equipTitle(item.id);
+                            setEquippingId(null);
+                          }}
+                        >
+                          佩戴称号
+                        </Button>
+                      ) : (
+                        <Tag tone="neutral">未解锁</Tag>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {segment === 'calendar' && (
         <div className={styles.twoCol}>
