@@ -18,10 +18,8 @@ import { TitleBadge, TitleBadgeList } from '@/components/TitleBadge';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { punchApi } from '@/services/punchApi';
-import { useOrbitStore } from '@/stores/useOrbitStore';
+import { useOrbitStore, type GrowthSegment } from '@/stores/useOrbitStore';
 import styles from './PunchGrowth.module.css';
-
-type GrowthSegment = 'calendar' | 'titles' | 'assessment' | 'report';
 
 function currentYearMonth(): string {
   const d = new Date();
@@ -40,8 +38,9 @@ export function PunchGrowthPage(): JSX.Element {
   const points = useOrbitStore((s) => s.points);
   const myTitles = useOrbitStore((s) => s.myTitles);
   const equipTitle = useOrbitStore((s) => s.equipTitle);
+  const segment = useOrbitStore((s) => s.growthSegment);
+  const setSegment = useOrbitStore((s) => s.setGrowthSegment);
 
-  const [segment, setSegment] = useState<GrowthSegment>('calendar');
   const [equippingId, setEquippingId] = useState<string | null>(null);
   const [month, setMonth] = useState(currentYearMonth);
   const [selectedDate, setSelectedDate] = useState(todayIso);

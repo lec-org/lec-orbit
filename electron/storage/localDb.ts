@@ -49,7 +49,7 @@ function openNativeSqlite(dbPath: string): SqliteDatabaseLike | null {
 }
 
 export class LocalDB {
-  private readonly db: SqliteDatabaseLike | null;
+  private db: SqliteDatabaseLike | null;
   private readonly memoryCache = new Map<string, { value: string; updatedAt: number }>();
   private readonly memoryDrafts = new Map<string, WeeklyDraftRecord>();
   private readonly memoryRecents = new Map<string, DocRecentItem>();
@@ -258,6 +258,13 @@ export class LocalDB {
   }
 
   close(): void {
-    this.db?.close();
+    const current = this.db;
+    this.db = null;
+    if (!current) return;
+    try {
+      current.close();
+    } catch {
+      // 忽略重复关闭异常，保证退出与重启更新幂等
+    }
   }
 }

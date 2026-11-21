@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent as ReactMouseEvent } from 'react';
 import { Avatar, Button, Card, Empty, Statistic, Switch, Tag } from '@lec-space/liquidglass';
 import { Clock3, Flame, RefreshCw, ShieldCheck, Trophy, Users } from '@lec-space/icons';
-import { Wifi } from 'lucide-react';
+import { Award, Wifi } from 'lucide-react';
 import {
   formatClockDuration,
   formatReadableDuration,
@@ -26,7 +26,7 @@ export function PunchTodayPage(): JSX.Element {
   const myTitles = useOrbitStore((s) => s.myTitles);
   const toggleCheckInOut = useOrbitStore((s) => s.toggleCheckInOut);
   const refreshNetworkStatus = useOrbitStore((s) => s.refreshNetworkStatus);
-  const setActiveTab = useOrbitStore((s) => s.setActiveTab);
+  const openTitleCabinet = useOrbitStore((s) => s.openTitleCabinet);
   const updateConfig = useOrbitStore((s) => s.updateConfig);
   const setLoginModalOpen = useOrbitStore((s) => s.setLoginModalOpen);
 
@@ -181,8 +181,21 @@ export function PunchTodayPage(): JSX.Element {
                 titles={myTitles.displayTitles}
                 size="sm"
                 maxVisible={3}
-                onBadgeClick={() => setActiveTab('punch-growth')}
+                onBadgeClick={() => openTitleCabinet()}
               />
+            )}
+            {auth.authenticated && (
+              <Button
+                variant="glass"
+                size="small"
+                icon={<Award size={13} />}
+                onClick={() => openTitleCabinet()}
+              >
+                称号图鉴
+                {myTitles
+                  ? ` ${myTitles.catalog.filter((c) => c.unlocked).length}/${myTitles.catalog.length}`
+                  : ''}
+              </Button>
             )}
           </div>
           <p className={styles.subheading}>

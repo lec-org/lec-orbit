@@ -42,9 +42,12 @@ export type OrbitNavTab =
   | 'products'
   | 'settings';
 
+export type GrowthSegment = 'calendar' | 'titles' | 'assessment' | 'report';
+
 interface OrbitStoreState {
   ready: boolean;
   activeTab: OrbitNavTab;
+  growthSegment: GrowthSegment;
   config: OrbitConfig;
   auth: AuthState;
   docState: DocViewState;
@@ -82,6 +85,8 @@ interface OrbitStoreState {
 
   bootstrap: () => Promise<void>;
   setActiveTab: (tab: OrbitNavTab) => void;
+  setGrowthSegment: (segment: GrowthSegment) => void;
+  openTitleCabinet: () => void;
   setAuthState: (auth: AuthState) => void;
   setDocState: (docState: DocViewState) => void;
   setUpdateInfo: (info: UpdateCheckResult) => void;
@@ -140,6 +145,7 @@ function syncOverlayWithMain(state: {
 export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   ready: false,
   activeTab: 'punch-today',
+  growthSegment: 'calendar',
   config: OrbitConfigSchema.parse({}),
   auth: initialAuth,
   docState: initialDoc,
@@ -237,6 +243,13 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       if (now - lastOrbitSyncAt >= 15_000) void get().refreshOrbitCenter();
       if (now - lastPunchSyncAt >= 15_000) void get().refreshPunchData();
     }
+  },
+
+  setGrowthSegment: (growthSegment) => set({ growthSegment }),
+
+  openTitleCabinet: () => {
+    set({ growthSegment: 'titles' });
+    get().setActiveTab('punch-growth');
   },
 
   setAuthState: (auth) => {

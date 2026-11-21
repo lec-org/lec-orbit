@@ -2,6 +2,7 @@
 import { useState, type JSX } from 'react';
 import { Avatar, Button, Card, Empty, SegmentedControl, Tag } from '@lec-space/liquidglass';
 import { CalendarDays, ExternalLink, Trophy } from '@lec-space/icons';
+import { Award } from 'lucide-react';
 import { getOrbitEndpoints } from '@shared/env';
 import { formatReadableDuration } from '@shared/punch';
 import { TitleBadgeList } from '@/components/TitleBadge';
@@ -15,6 +16,7 @@ export function PunchStudioPage(): JSX.Element {
   const auth = useOrbitStore((s) => s.auth);
   const ranking = useOrbitStore((s) => s.teamRanking);
   const events = useOrbitStore((s) => s.teamEvents);
+  const openTitleCabinet = useOrbitStore((s) => s.openTitleCabinet);
   const [segment, setSegment] = useState<StudioSegment>('ranking');
 
   const openAdminInBrowser = () => {
@@ -30,6 +32,16 @@ export function PunchStudioPage(): JSX.Element {
           <p className={styles.subheading}>团队本周专注排行与近期工作室活动</p>
         </div>
         <div className={styles.actions}>
+          {auth.authenticated && (
+            <Button
+              variant="glass"
+              size="small"
+              icon={<Award size={14} />}
+              onClick={() => openTitleCabinet()}
+            >
+              我的称号
+            </Button>
+          )}
           {auth.isAdmin && (
             <Button
               variant="glass"

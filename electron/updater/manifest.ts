@@ -172,6 +172,8 @@ export function buildMacSelfReplaceScript(params: MacSelfReplaceScriptParams): s
     '  fi',
     '  sleep 0.2',
     'done',
+    '# 等待渲染子进程与单实例锁释放',
+    'sleep 0.4',
     '',
     '# 2. 校验预解压的新版本存在',
     'if [ ! -d "$STAGED_APP" ]; then',
@@ -207,7 +209,8 @@ export function buildMacSelfReplaceScript(params: MacSelfReplaceScriptParams): s
     '/usr/bin/touch "$TARGET_APP" 2>/dev/null || true',
     'rm -rf "$BACKUP_APP" "$WORK_DIR" 2>/dev/null || true',
     '',
-    '# 5. 拉起新版本 Orbit',
+    '# 5. 等待文件系统元数据刷新后拉起新版本 Orbit',
+    'sleep 0.3',
     '/usr/bin/open "$TARGET_APP" 2>/dev/null || true',
     '',
   ].join('\n');

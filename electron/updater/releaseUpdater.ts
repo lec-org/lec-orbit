@@ -122,6 +122,7 @@ export class OrbitUpdater {
   private initialTimer: NodeJS.Timeout | null = null;
   private downloadedViaAutoUpdater = false;
   private downloading = false;
+  private installing = false;
   private expectedAssetSha512: string | undefined;
   private stagedMacUpdate: StagedMacUpdate | null = null;
   private state: UpdateCheckResult = {
@@ -587,19 +588,29 @@ export class OrbitUpdater {
   }
 
   async installAndRestart(): Promise<void> {
+    if (this.installing) return;
+
     // 1. Windows（或已签名 macOS）走 electron-updater 静默覆盖 + 强制自动重启
     if (this.downloadedViaAutoUpdater && app.isPackaged) {
-      this.options.onBeforeInstall?.();
-      autoUpdater.quitAndInstall(true, true);
+      this.installing = true;
+      setTimeout(() => {
+        try {
+          this.options.onBeforeInstall?.();
+        } catch {
+          // 忽略清理异常，继续完成重启更新
+        }
+        autoUpdater.quitAndInstall(true, true);
+      }, 80);
       return;
     }
 
-    // 2. macOS 未签名零成本一键「重启以更新」：拉起脱离父进程的原子替换脚本并立刻退出当前实例
+    // 2. macOS 未签名零成本一键「重启以更新」：拉起脱离父进程的原子替换脚本后优雅退出当前实例
     if (
       process.platform === 'darwin' &&
       this.stagedMacUpdate &&
       fs.existsSync(this.stagedMacUpdate.stagedAppPath)
     ) {
+      this.installing = true;
       const { targetAppPath, stagedAppPath, workDir } = this.stagedMacUpdate;
       const backupAppPath = path.join(
         path.dirname(targetAppPath),
@@ -619,10 +630,19 @@ export class OrbitUpdater {
         detached: true,
         stdio: 'ignore',
       });
+      helper.on('error', () => undefined);
       helper.unref();
 
-      this.options.onBeforeInstall?.();
-      app.exit(0);
+      // 先让当前 ipcMain.handle 正常返回，避免同步 app.exit 撕裂 IPC/渲染进程触发 Electron 崩溃弹窗
+      setTimeout(() => {
+        try {
+          this.options.onBeforeInstall?.();
+        } catch {
+          // 忽略清理异常
+        }
+        app.quit();
+        setTimeout(() => app.exit(0), 1200);
+      }, 80);
       return;
     }
 
@@ -633,15 +653,24 @@ export class OrbitUpdater {
       this.state.downloadedFilePath.toLowerCase().endsWith('.exe') &&
       fs.existsSync(this.state.downloadedFilePath)
     ) {
+      this.installing = true;
       const installer = spawn(this.state.downloadedFilePath, ['--updated', '/S', '--force-run'], {
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
       });
+      installer.on('error', () => undefined);
       installer.unref();
 
-      this.options.onBeforeInstall?.();
-      app.exit(0);
+      setTimeout(() => {
+        try {
+          this.options.onBeforeInstall?.();
+        } catch {
+          // 忽略清理异常
+        }
+        app.quit();
+        setTimeout(() => app.exit(0), 1200);
+      }, 80);
       return;
     }
 

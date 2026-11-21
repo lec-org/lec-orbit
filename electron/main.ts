@@ -320,14 +320,28 @@ app.on('second-instance', (_event, argv) => {
   windowManager?.showMainWindow();
 });
 
+let cleanedUp = false;
+function cleanupBeforeQuit(): void {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  const safe = (fn: () => void) => {
+    try {
+      fn();
+    } catch {
+      // 退出阶段忽略单步清理异常，避免 Electron 弹出未捕获异常框
+    }
+  };
+  safe(() => windowManager?.markQuitting());
+  safe(() => windowManager?.destroyFloatingBallWindow());
+  safe(() => updater?.stopAutoCheck());
+  safe(() => localDocHost?.stop());
+  safe(() => authService?.dispose());
+  safe(() => trayManager?.dispose());
+  safe(() => localDb?.close());
+}
+
 app.on('before-quit', () => {
-  windowManager?.markQuitting();
-  windowManager?.destroyFloatingBallWindow();
-  updater?.stopAutoCheck();
-  localDocHost?.stop();
-  authService?.dispose();
-  trayManager?.dispose();
-  localDb?.close();
+  cleanupBeforeQuit();
 });
 
 app.on('activate', () => {
@@ -335,6 +349,7 @@ app.on('activate', () => {
 });
 
 app.whenReady().then(async () => {
+  if (!gotLock) return;
   // macOS Dock 图标与原生应用菜单栏（保证 Dock 图标常驻、Cmd+Tab 可见、聚焦窗口时左上角显示 Orbit）
   if (process.platform === 'darwin') {
     if (app.dock) {
@@ -431,13 +446,7 @@ app.whenReady().then(async () => {
   authService = new AuthService(secretStore, configStore);
   updater = new OrbitUpdater({
     onBeforeInstall: () => {
-      windowManager?.markQuitting();
-      windowManager?.destroyFloatingBallWindow();
-      updater?.stopAutoCheck();
-      localDocHost?.stop();
-      authService?.dispose();
-      trayManager?.dispose();
-      localDb?.close();
+      cleanupBeforeQuit();
     },
   });
 

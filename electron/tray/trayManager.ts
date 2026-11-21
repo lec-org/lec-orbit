@@ -105,9 +105,20 @@ export class TrayManager {
 
   dispose(): void {
     if (this.registeredShortcut) {
-      globalShortcut.unregister(this.registeredShortcut);
+      try {
+        globalShortcut.unregister(this.registeredShortcut);
+      } catch {
+        // 忽略退出阶段快捷键注销异常
+      }
+      this.registeredShortcut = null;
     }
-    this.tray?.destroy();
-    this.tray = null;
+    if (this.tray) {
+      try {
+        this.tray.destroy();
+      } catch {
+        // 忽略重复销毁异常
+      }
+      this.tray = null;
+    }
   }
 }
