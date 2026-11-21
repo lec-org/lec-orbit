@@ -20,6 +20,7 @@ import { LocalDB } from './storage/localDb';
 import { SecretStore } from './storage/secretStore';
 import { TrayManager } from './tray/trayManager';
 import { OrbitUpdater } from './updater/releaseUpdater';
+import { safeSendToWindow } from './windows/safeSend';
 import { WindowManager } from './windows/windowManager';
 
 // 单实例锁：重复启动或 Windows 通过 lec-orbit:// 唤醒时交由已有主实例处理
@@ -71,6 +72,10 @@ function handleProtocolUrl(rawUrl: string): void {
     challengeId: parsed.challengeId,
     receivedAt: Date.now(),
   });
+}
+
+function sendToMainWindow(channel: string, ...args: unknown[]): void {
+  safeSendToWindow(windowManager?.getMainWindow(), channel, ...args);
 }
 
 function registerIpcHandlers(): void {
@@ -258,7 +263,7 @@ function registerIpcHandlers(): void {
       })
       .safeParse(raw);
     if (parsed.success) {
-      windowManager.getMainWindow()?.webContents.send('orbit:doc:editRequestTriggered', parsed.data);
+      sendToMainWindow('orbit:doc:editRequestTriggered', parsed.data);
     }
   });
 
@@ -298,7 +303,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle('orbit:floating:snapToEdge', () => windowManager.snapFloatingBallToEdge());
   ipcMain.handle('orbit:floating:togglePunch', () => {
-    windowManager.getMainWindow()?.webContents.send('orbit:system:quickPunch');
+    sendToMainWindow('orbit:system:quickPunch');
   });
   ipcMain.handle('orbit:floating:openMain', () => {
     windowManager.setFloatingBallExpanded(false);
@@ -481,7 +486,7 @@ app.whenReady().then(async () => {
 
   trayManager = new TrayManager({
     onShowMain: () => windowManager.showMainWindow(),
-    onQuickPunch: () => windowManager.getMainWindow()?.webContents.send('orbit:system:quickPunch'),
+    onQuickPunch: () => sendToMainWindow('orbit:system:quickPunch'),
     onToggleFloatingBall: () => {
       const next = configStore.update({
         floatingBallEnabled: !configStore.get().floatingBallEnabled,
@@ -503,13 +508,13 @@ app.whenReady().then(async () => {
       ...windowManager.getFloatingState(),
       authenticated: state.authenticated,
     });
-    windowManager.getMainWindow()?.webContents.send('orbit:auth:stateChanged', state);
+    sendToMainWindow('orbit:auth:stateChanged', state);
   });
   windowManager.onDocStateChanged((state) => {
-    windowManager.getMainWindow()?.webContents.send('orbit:doc:stateChanged', state);
+    sendToMainWindow('orbit:doc:stateChanged', state);
   });
   updater.onStateChanged((state) => {
-    windowManager.getMainWindow()?.webContents.send('orbit:system:updateState', state);
+    sendToMainWindow('orbit:system:updateState', state);
   });
 
   const initialCfg = configStore.get();

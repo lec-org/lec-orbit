@@ -21,6 +21,7 @@ import { ORBIT_SHARED_PARTITION } from '../auth/authService';
 import type { LocalDocHost } from '../doc/localDocHost';
 import type { ConfigStore } from '../storage/configStore';
 import type { LocalDB } from '../storage/localDb';
+import { getAliveWindow, safeSendToWindow } from './safeSend';
 import {
   centerOnDisplay,
   MIN_MAIN_HEIGHT,
@@ -240,7 +241,7 @@ export class WindowManager {
   }
 
   getMainWindow(): BrowserWindow | null {
-    return this.mainWindow;
+    return getAliveWindow(this.mainWindow);
   }
 
   markQuitting(): void {
@@ -377,9 +378,10 @@ export class WindowManager {
 
     win.on('closed', () => {
       nativeTheme.off('updated', onNativeThemeUpdated);
-      this.destroyDocView(false);
+      // 必须先置空主窗引用再销毁子视图，避免 destroyDocView -> emitDocState 向已销毁窗口发送 IPC 抛 Object has been destroyed
       this.mainWindow = null;
       this.mainWindowReady = false;
+      this.destroyDocView(false);
       this.syncFloatingBallVisibility();
     });
 
@@ -748,7 +750,7 @@ export class WindowManager {
     }
 
     this.approveWindow.setBounds(rect);
-    this.approveWindow.webContents.send('orbit:approve:challenge', event);
+    safeSendToWindow(this.approveWindow, 'orbit:approve:challenge', event);
     this.approveWindow.show();
     this.approveWindow.focus();
   }
@@ -769,9 +771,7 @@ export class WindowManager {
   }
 
   private emitFloatingState(): void {
-    if (this.floatingWindow && !this.floatingWindow.isDestroyed()) {
-      this.floatingWindow.webContents.send('orbit:floating:stateChanged', this.getFloatingState());
-    }
+    safeSendToWindow(this.floatingWindow, 'orbit:floating:stateChanged', this.getFloatingState());
   }
 
   updateFloatingPunchSummary(summary: TrayPunchSummary): void {
