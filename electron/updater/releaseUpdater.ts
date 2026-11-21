@@ -1,26 +1,37 @@
 /**
- * Orbit 客户端 GitHub Releases 自动更新与应用内进度下载：
- * - 统一拉取 https://api.github.com/repos/lec-org/lec-orbit/releases/latest 的版本号、更新日志与对应平台安装包资产；
- * - 启动延迟静默检查 + 每 4 小时后台自动轮询，推送状态给全局更新提示条；
- * - Windows 打包态（及签名 macOS）优先走 electron-updater 全自动下载并重启安装；
- * - 未签名 macOS 或直链安装包场景：直接通过主进程流式下载 .dmg/.exe 到系统下载目录（实时回传 0~100% 进度），下完一键打开安装包完成升级。
+ * Orbit 客户端 GitHub Releases 自动更新与应用内一键「重启以更新」：
+ * - 优先读取零限流 GitHub Releases CDN 托管的 latest-mac.yml / latest.yml（含 sha512 校验值），
+ *   彻底规避校园网共享出口 IP 触发 api.github.com 匿名 403 限流；
+ * - Windows：electron-updater 直连 generic CDN 源，点击「重启以更新」先标记退出态防托盘拦截，
+ *   再执行 quitAndInstall(true, true) 静默覆盖并自动重启（降级直链 .exe 同样支持静默重启更新）；
+ * - macOS：无需 $99 苹果签名即可实现真正「重启以更新」——流式下载 .zip → 校验 sha512 →
+ *   后台 ditto 静默解压校验 + xattr 预清隔离 → 点击后拉起脱离父进程的原子替换脚本（带失败自动回滚）
+ *   并在 2 秒内自动拉起新版本；若运行在只读 DMG 卷或隔离沙箱中则自动回退打开 .dmg。
  */
 import { app, net, shell } from 'electron';
 import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater';
+import { execFile, spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { UpdateCheckResult } from '../../src/shared/ipc';
 import {
+  buildMacSelfReplaceScript,
   compareSemver,
   parseLatestManifestYaml,
+  resolveMacAppBundlePath,
   type ParsedLatestManifest,
   type ReleaseAssetInfo,
 } from './manifest';
+
+const execFileAsync = promisify(execFile);
 
 const GITHUB_REPO = process.env.ORBIT_UPDATE_GITHUB_REPO?.trim() || 'lec-org/lec-orbit';
 const LATEST_RELEASE_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const LATEST_RELEASE_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
 const LATEST_DOWNLOAD_BASE = `https://github.com/${GITHUB_REPO}/releases/latest/download`;
+const EXPECTED_MAC_BUNDLE_ID = 'top.lecspace.orbit';
 
 type GitHubAsset = ReleaseAssetInfo;
 
@@ -35,12 +46,27 @@ interface GitHubReleasePayload {
   assets?: GitHubAsset[];
 }
 
+interface StagedMacUpdate {
+  targetAppPath: string;
+  stagedAppPath: string;
+  workDir: string;
+}
+
+export interface OrbitUpdaterOptions {
+  /** 在重启安装前执行，用于标记主进程正在退出（防止 closeToTray 拦截）、销毁悬浮球与托盘。 */
+  onBeforeInstall?: () => void;
+}
+
 export { compareSemver, parseLatestManifestYaml };
 
-function pickPlatformAsset(assets: GitHubAsset[] | undefined): GitHubAsset | null {
+function pickPlatformAsset(
+  assets: GitHubAsset[] | undefined,
+  options?: { preferMacZip?: boolean },
+): GitHubAsset | null {
   if (!assets || assets.length === 0) return null;
   const platform = process.platform;
   const arch = process.arch; // arm64 / x64
+  const preferMacZip = Boolean(options?.preferMacZip);
 
   const score = (asset: GitHubAsset): number => {
     const n = asset.name.toLowerCase();
@@ -49,8 +75,11 @@ function pickPlatformAsset(assets: GitHubAsset[] | undefined): GitHubAsset | nul
     }
     if (platform === 'darwin') {
       let s = 0;
-      if (n.endsWith('.dmg')) s += 40;
-      else if (n.endsWith('.zip') && (n.includes('mac') || n.includes('darwin') || n.includes('arm64') || n.includes('x64'))) s += 20;
+      const isMacZip =
+        n.endsWith('.zip') &&
+        (n.includes('mac') || n.includes('darwin') || n.includes('arm64') || n.includes('x64'));
+      if (isMacZip) s += preferMacZip ? 40 : 20;
+      else if (n.endsWith('.dmg')) s += preferMacZip ? 20 : 40;
       else return -50;
       if (arch === 'arm64' && (n.includes('arm64') || n.includes('aarch64'))) s += 25;
       else if (arch === 'x64' && (n.includes('x64') || n.includes('amd64') || n.includes('intel'))) s += 25;
@@ -93,6 +122,8 @@ export class OrbitUpdater {
   private initialTimer: NodeJS.Timeout | null = null;
   private downloadedViaAutoUpdater = false;
   private downloading = false;
+  private expectedAssetSha512: string | undefined;
+  private stagedMacUpdate: StagedMacUpdate | null = null;
   private state: UpdateCheckResult = {
     currentVersion: app.getVersion(),
     available: false,
@@ -100,6 +131,8 @@ export class OrbitUpdater {
     stage: 'idle',
   };
   private readonly listeners = new Set<(state: UpdateCheckResult) => void>();
+
+  constructor(private readonly options: OrbitUpdaterOptions = {}) {}
 
   getState(): UpdateCheckResult {
     return this.state;
@@ -142,17 +175,42 @@ export class OrbitUpdater {
     return this.state;
   }
 
+  /** 判断当前运行的 macOS .app 是否支持原位原子替换（要求打包态、非只读 DMG/AppTranslocation、可写目录）。 */
+  private getReplaceableMacAppPath(): string | null {
+    if (process.platform !== 'darwin' || !app.isPackaged) return null;
+    const appPath = resolveMacAppBundlePath(process.execPath);
+    if (!appPath) return null;
+    try {
+      fs.accessSync(appPath, fs.constants.W_OK);
+      fs.accessSync(path.dirname(appPath), fs.constants.W_OK);
+      return appPath;
+    } catch {
+      return null;
+    }
+  }
+
   private supportsNativeAutoInstall(): boolean {
     if (!app.isPackaged) return false;
-    // Windows NSIS 完整支持原位自动安装；macOS 仅在明确开启签名模式时走 Squirrel 原位替换
+    // Windows NSIS 完整支持原位静默安装；macOS 仅在明确开启 Apple 签名模式时走 Squirrel
     if (process.platform === 'win32') return true;
     if (process.platform === 'darwin') return process.env.ORBIT_MAC_SIGNED_AUTO_UPDATE === '1';
+    return false;
+  }
+
+  private supportsOneClickRestartInstall(): boolean {
+    if (this.supportsNativeAutoInstall()) return true;
+    if (this.getReplaceableMacAppPath()) return true;
     return false;
   }
 
   private ensureAutoUpdaterInit(): void {
     if (this.initialized) return;
     this.initialized = true;
+    // 统一指向零限流 GitHub Releases CDN（generic provider 直接拉取 latest.yml 与安装包，彻底避开 api.github.com 限流）
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: LATEST_DOWNLOAD_BASE,
+    });
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
@@ -240,6 +298,7 @@ export class OrbitUpdater {
 
   async check(): Promise<UpdateCheckResult> {
     const currentVersion = app.getVersion();
+    const preferMacZip = Boolean(this.getReplaceableMacAppPath());
     this.updateState({
       currentVersion,
       stage: 'checking',
@@ -252,8 +311,11 @@ export class OrbitUpdater {
       if (manifest) {
         const latestVersion = manifest.version;
         const available = compareSemver(latestVersion, currentVersion) > 0;
-        const asset = pickPlatformAsset(manifest.assets);
-        const canAutoInstall = this.supportsNativeAutoInstall();
+        const asset = pickPlatformAsset(manifest.assets, { preferMacZip });
+        this.expectedAssetSha512 = asset?.sha512;
+        const canAutoInstall =
+          this.supportsNativeAutoInstall() ||
+          (preferMacZip && Boolean(asset?.name.toLowerCase().endsWith('.zip')));
         const releaseNotes = available ? await this.fetchReleaseNotesBestEffort(latestVersion) : undefined;
         return this.updateState({
           currentVersion,
@@ -276,8 +338,11 @@ export class OrbitUpdater {
       if (gh && gh.tag_name) {
         const latestVersion = gh.tag_name.replace(/^v/i, '');
         const available = compareSemver(latestVersion, currentVersion) > 0;
-        const asset = pickPlatformAsset(gh.assets);
-        const canAutoInstall = this.supportsNativeAutoInstall();
+        const asset = pickPlatformAsset(gh.assets, { preferMacZip });
+        this.expectedAssetSha512 = asset?.sha512;
+        const canAutoInstall =
+          this.supportsNativeAutoInstall() ||
+          (preferMacZip && Boolean(asset?.name.toLowerCase().endsWith('.zip')));
         return this.updateState({
           currentVersion,
           latestVersion,
@@ -298,7 +363,6 @@ export class OrbitUpdater {
         throw new Error('GitHub 接口触发访问频率限制，请稍后重试或直接前往发布页下载。');
       }
 
-      // 仓库尚无正式 Release（404）时视为已是最新，不弹红错
       if (this.supportsNativeAutoInstall()) {
         this.ensureAutoUpdaterInit();
         const result = await autoUpdater.checkForUpdates().catch(() => null);
@@ -332,10 +396,55 @@ export class OrbitUpdater {
     }
   }
 
+  /** 将已下载的 macOS .zip 在临时目录静默解压、验证 Bundle ID 并预清 quarantine。 */
+  private async stageMacZipBundle(
+    zipPath: string,
+    targetAppPath: string,
+    workDir: string,
+  ): Promise<StagedMacUpdate> {
+    const extractDir = path.join(workDir, 'extracted');
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    await execFileAsync('/usr/bin/ditto', ['-xk', zipPath, extractDir], {
+      timeout: 120_000,
+    });
+
+    const entries = fs.readdirSync(extractDir);
+    const appEntry =
+      entries.find((e) => e.toLowerCase() === 'orbit.app') ??
+      entries.find((e) => e.toLowerCase().endsWith('.app'));
+    if (!appEntry) {
+      throw new Error('解压后的更新包中未找到 Orbit.app。');
+    }
+
+    const stagedAppPath = path.join(extractDir, appEntry);
+    const infoPlistPath = path.join(stagedAppPath, 'Contents', 'Info.plist');
+    if (!fs.existsSync(infoPlistPath)) {
+      throw new Error('更新包结构不完整（缺少 Info.plist）。');
+    }
+
+    // 校验 Info.plist 确实属于 Orbit，防止异常压缩包误覆盖
+    const plistContent = fs.readFileSync(infoPlistPath, 'utf8');
+    if (!plistContent.includes(EXPECTED_MAC_BUNDLE_ID)) {
+      throw new Error('更新包应用标识与 Orbit 不一致，已中止替换。');
+    }
+
+    // 提前清除 quarantine 隔离属性，保证重启后零 Gatekeeper 拦截
+    await execFileAsync('/usr/bin/xattr', ['-cr', stagedAppPath], { timeout: 30_000 }).catch(
+      () => undefined,
+    );
+
+    // 删除临时 zip 释放空间
+    fs.rmSync(zipPath, { force: true });
+
+    return { targetAppPath, stagedAppPath, workDir };
+  }
+
   async download(): Promise<UpdateCheckResult> {
     if (this.downloading) return this.state;
 
-    // 1. 支持原生自动安装（Windows NSIS / 已签名 macOS）-> 走 electron-updater
+    // 1. 支持原生自动安装（Windows NSIS / 已签名 macOS）-> 走 electron-updater（已指向零限流 CDN）
     if (this.supportsNativeAutoInstall()) {
       this.downloading = true;
       this.ensureAutoUpdaterInit();
@@ -356,7 +465,7 @@ export class OrbitUpdater {
       }
     }
 
-    // 2. 应用内流式下载 GitHub Release 对应平台安装包（.dmg / .exe / .AppImage），实时汇报进度
+    // 2. 应用内流式下载 GitHub Release 对应平台资产（macOS .zip 原位预解压 / Windows .exe / .dmg）
     const assetUrl = this.state.assetUrl;
     if (!assetUrl) {
       if (this.state.releaseUrl) {
@@ -367,7 +476,27 @@ export class OrbitUpdater {
 
     this.downloading = true;
     this.downloadedViaAutoUpdater = false;
+    this.stagedMacUpdate = null;
     this.updateState({ stage: 'downloading', progressPercent: 0, errorMessage: undefined });
+
+    const replaceableMacAppPath = this.getReplaceableMacAppPath();
+    const safeFileName = (this.state.assetName || `Orbit-${this.state.latestVersion || 'latest'}.dmg`).replace(
+      /[^a-zA-Z0-9._-]/g,
+      '_',
+    );
+    const willStageMacZip =
+      Boolean(replaceableMacAppPath) && safeFileName.toLowerCase().endsWith('.zip');
+    const willDirectWinExe =
+      process.platform === 'win32' && safeFileName.toLowerCase().endsWith('.exe');
+    const safeVersion = (this.state.latestVersion || 'latest').replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    const workDir =
+      willStageMacZip || willDirectWinExe
+        ? path.join(app.getPath('temp'), 'orbit-updater', safeVersion)
+        : app.getPath('downloads');
+
+    const finalPath = path.join(workDir, safeFileName);
+    const partPath = `${finalPath}.part`;
 
     try {
       const res = await net.fetch(assetUrl, {
@@ -378,29 +507,29 @@ export class OrbitUpdater {
       }
 
       const totalBytes = Number(res.headers.get('content-length')) || this.state.assetSize || 0;
-      const safeFileName = (this.state.assetName || `Orbit-${this.state.latestVersion || 'latest'}.dmg`).replace(
-        /[^a-zA-Z0-9._-]/g,
-        '_',
-      );
-      const targetDir = app.getPath('downloads');
-      const finalPath = path.join(targetDir, safeFileName);
-      const partPath = `${finalPath}.part`;
-
-      fs.mkdirSync(targetDir, { recursive: true });
+      fs.mkdirSync(workDir, { recursive: true });
       const fileStream = fs.createWriteStream(partPath);
+      const hash = crypto.createHash('sha512');
       const reader = res.body.getReader();
 
       let received = 0;
       let lastPercent = -1;
+      // macOS .zip 下载后还需留 5% 进度给解压与完整性校验
+      const maxDownloadPct = willStageMacZip ? 94 : 99;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (value) {
-          fileStream.write(Buffer.from(value));
-          received += value.byteLength;
+          const buf = Buffer.from(value);
+          fileStream.write(buf);
+          hash.update(buf);
+          received += buf.byteLength;
           if (totalBytes > 0) {
-            const pct = Math.min(99, Math.round((received / totalBytes) * 100));
+            const pct = Math.min(
+              maxDownloadPct,
+              Math.round((received / totalBytes) * maxDownloadPct),
+            );
             if (pct !== lastPercent) {
               lastPercent = pct;
               this.updateState({ stage: 'downloading', progressPercent: pct });
@@ -415,15 +544,40 @@ export class OrbitUpdater {
         fileStream.end();
       });
 
+      // 校验 SHA-512（与 latest-mac.yml / latest.yml 中的 sha512 一致）
+      if (this.expectedAssetSha512) {
+        const actualSha512 = hash.digest('base64');
+        if (actualSha512 !== this.expectedAssetSha512) {
+          fs.rmSync(partPath, { force: true });
+          throw new Error('安装包完整性校验失败（SHA-512 不匹配），请重新下载。');
+        }
+      }
+
       fs.renameSync(partPath, finalPath);
+
+      // macOS 可原位替换：静默解压 .zip 并校验 .app 后直接进入「重启以更新」就绪态
+      if (willStageMacZip && replaceableMacAppPath) {
+        this.updateState({ stage: 'downloading', progressPercent: 97 });
+        const staged = await this.stageMacZipBundle(finalPath, replaceableMacAppPath, workDir);
+        this.stagedMacUpdate = staged;
+        this.downloading = false;
+        return this.updateState({
+          stage: 'downloaded',
+          progressPercent: 100,
+          downloadedFilePath: staged.stagedAppPath,
+          canAutoInstall: true,
+        });
+      }
+
       this.downloading = false;
       return this.updateState({
         stage: 'downloaded',
         progressPercent: 100,
         downloadedFilePath: finalPath,
-        canAutoInstall: false,
+        canAutoInstall: willDirectWinExe,
       });
     } catch (err) {
+      fs.rmSync(partPath, { force: true });
       this.downloading = false;
       return this.updateState({
         stage: 'error',
@@ -433,10 +587,65 @@ export class OrbitUpdater {
   }
 
   async installAndRestart(): Promise<void> {
+    // 1. Windows（或已签名 macOS）走 electron-updater 静默覆盖 + 强制自动重启
     if (this.downloadedViaAutoUpdater && app.isPackaged) {
-      autoUpdater.quitAndInstall();
+      this.options.onBeforeInstall?.();
+      autoUpdater.quitAndInstall(true, true);
       return;
     }
+
+    // 2. macOS 未签名零成本一键「重启以更新」：拉起脱离父进程的原子替换脚本并立刻退出当前实例
+    if (
+      process.platform === 'darwin' &&
+      this.stagedMacUpdate &&
+      fs.existsSync(this.stagedMacUpdate.stagedAppPath)
+    ) {
+      const { targetAppPath, stagedAppPath, workDir } = this.stagedMacUpdate;
+      const backupAppPath = path.join(
+        path.dirname(targetAppPath),
+        `.${path.basename(targetAppPath)}.backup-${process.pid}`,
+      );
+      const scriptPath = path.join(workDir, 'apply-update.sh');
+      const scriptBody = buildMacSelfReplaceScript({
+        oldPid: process.pid,
+        targetAppPath,
+        stagedAppPath,
+        backupAppPath,
+        workDir,
+      });
+      fs.writeFileSync(scriptPath, scriptBody, { mode: 0o700 });
+
+      const helper = spawn('/bin/sh', [scriptPath], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      helper.unref();
+
+      this.options.onBeforeInstall?.();
+      app.exit(0);
+      return;
+    }
+
+    // 3. Windows 降级直链 .exe：同样支持静默覆盖并自动拉起新版
+    if (
+      process.platform === 'win32' &&
+      this.state.downloadedFilePath &&
+      this.state.downloadedFilePath.toLowerCase().endsWith('.exe') &&
+      fs.existsSync(this.state.downloadedFilePath)
+    ) {
+      const installer = spawn(this.state.downloadedFilePath, ['--updated', '/S', '--force-run'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      installer.unref();
+
+      this.options.onBeforeInstall?.();
+      app.exit(0);
+      return;
+    }
+
+    // 4. 兜底（如只读 DMG 卷或 Linux）：打开安装包或 Release 页面
     if (this.state.downloadedFilePath && fs.existsSync(this.state.downloadedFilePath)) {
       await shell.openPath(this.state.downloadedFilePath);
       return;

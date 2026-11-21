@@ -521,11 +521,13 @@ export function App(): JSX.Element {
                         className={styles.updatePrimaryBtn}
                         onClick={() => void getOrbitClient().system.installUpdate()}
                       >
-                        {updateInfo.canAutoInstall ? '重启更新' : '打开安装包'}
+                        {updateInfo.canAutoInstall ? '重启以更新' : '打开安装包'}
                       </Button>
                     ) : updateInfo.stage === 'downloading' ? (
                       <span className={styles.updatePctText}>
-                        已下载 {updateInfo.progressPercent ?? 0}%
+                        {(updateInfo.progressPercent ?? 0) >= 95 && updateInfo.canAutoInstall
+                          ? '正在准备更新包…'
+                          : `已下载 ${updateInfo.progressPercent ?? 0}%`}
                       </span>
                     ) : (
                       <>
@@ -603,8 +605,11 @@ export function App(): JSX.Element {
                     />
                   </div>
                   <span className={styles.updatePctText}>
-                    应用内下载中 {updateInfo.progressPercent ?? 0}%
-                    {updateInfo.assetName ? `（${updateInfo.assetName}）` : ''}
+                    {(updateInfo.progressPercent ?? 0) >= 95 && updateInfo.canAutoInstall
+                      ? '下载完成，正在校验并解压更新包…'
+                      : `应用内下载中 ${updateInfo.progressPercent ?? 0}%${
+                          updateInfo.assetName ? `（${updateInfo.assetName}）` : ''
+                        }`}
                   </span>
                 </div>
               )}
@@ -634,7 +639,7 @@ export function App(): JSX.Element {
                       size="small"
                       onClick={() => void getOrbitClient().system.installUpdate()}
                     >
-                      {updateInfo.canAutoInstall ? '重启并安装' : '打开安装包'}
+                      {updateInfo.canAutoInstall ? '重启以更新' : '打开安装包'}
                     </Button>
                   ) : (
                     <Button
@@ -645,7 +650,9 @@ export function App(): JSX.Element {
                       onClick={() => void getOrbitClient().system.downloadUpdate()}
                     >
                       {updateInfo?.stage === 'downloading'
-                        ? `下载中 ${updateInfo.progressPercent ?? 0}%`
+                        ? (updateInfo.progressPercent ?? 0) >= 95 && updateInfo.canAutoInstall
+                          ? '正在准备更新包…'
+                          : `下载中 ${updateInfo.progressPercent ?? 0}%`
                         : '应用内下载更新'}
                     </Button>
                   )}

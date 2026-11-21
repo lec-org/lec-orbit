@@ -429,7 +429,17 @@ app.whenReady().then(async () => {
   localDocHost = new LocalDocHost();
   await localDocHost.start();
   authService = new AuthService(secretStore, configStore);
-  updater = new OrbitUpdater();
+  updater = new OrbitUpdater({
+    onBeforeInstall: () => {
+      windowManager?.markQuitting();
+      windowManager?.destroyFloatingBallWindow();
+      updater?.stopAutoCheck();
+      localDocHost?.stop();
+      authService?.dispose();
+      trayManager?.dispose();
+      localDb?.close();
+    },
+  });
 
   // electron-vite 输出结构：out/main/index.js、out/preload/index.js、out/preload/docPreload.js、out/renderer/index.html
   const preloadPath = path.join(__dirname, '../preload/index.js');

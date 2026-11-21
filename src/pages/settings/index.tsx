@@ -365,7 +365,7 @@ export function SettingsPage(): JSX.Element {
                 size="small"
                 onClick={() => void getOrbitClient().system.installUpdate()}
               >
-                {updateInfo.canAutoInstall ? '重启安装新版本' : '打开安装包更新'}
+                {updateInfo.canAutoInstall ? '重启以更新' : '打开安装包更新'}
               </Button>
             ) : updateInfo?.available ? (
               <Button
@@ -376,7 +376,9 @@ export function SettingsPage(): JSX.Element {
                 onClick={() => void getOrbitClient().system.downloadUpdate()}
               >
                 {updateInfo.stage === 'downloading'
-                  ? `下载中 ${updateInfo.progressPercent ?? 0}%`
+                  ? (updateInfo.progressPercent ?? 0) >= 95 && updateInfo.canAutoInstall
+                    ? '准备更新包…'
+                    : `下载中 ${updateInfo.progressPercent ?? 0}%`
                   : `下载 v${updateInfo.latestVersion}`}
               </Button>
             ) : (
