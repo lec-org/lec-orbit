@@ -112,6 +112,19 @@ func (s *Server) Router() *gin.Engine {
 
 		// 云文档编辑权限申请（成员在 Orbit 内发起 -> 实时推卡片给作者）
 		v1.POST("/doc-requests", s.handleCreateDocEditRequest)
+
+		// 工坊（小程序 + 小游戏容器：上传/GitHub导入/审核/云存档）
+		v1.GET("/apps", s.handleListMiniApps)
+		v1.GET("/apps/:id", s.handleGetMiniApp)
+		v1.POST("/apps/upload", s.handleUploadMiniAppBundle)
+		v1.POST("/apps/import-github", s.handleImportGitHubMiniApp)
+		v1.POST("/apps/:id/versions/:versionId/review", auth.RequireCaptain(), s.handleReviewMiniAppVersion)
+		v1.POST("/apps/:id/status", s.handleUpdateMiniAppStatus)
+		v1.POST("/apps/:id/play", s.handleRecordMiniAppPlay)
+		v1.GET("/apps/:id/kv", s.handleListMiniAppKVKeys)
+		v1.GET("/apps/:id/kv/:key", s.handleGetMiniAppKV)
+		v1.PUT("/apps/:id/kv/:key", s.handleSetMiniAppKV)
+		v1.DELETE("/apps/:id/kv/:key", s.handleDeleteMiniAppKV)
 	}
 
 	// 内部跨应用事件总线（供 LecDoc / LecPunch / Devtron / LecOJ / LecDrive 投递更新与业务事件）

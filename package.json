@@ -1,6 +1,6 @@
 {
   "name": "@lec-orbit/desktop",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "private": true,
   "description": "Orbit（伴程）— LEC 工作室统一桌面工作台与 LecSSO 原生桌面认证器",
   "author": "LEC Software Studio",
@@ -14,7 +14,10 @@
     "bundle:doc": "node scripts/bundle-lec-doc.mjs",
     "pack:dir": "bun run bundle:doc && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "package:mac": "bun run bundle:doc && bun run build && electron-builder --mac dmg zip --arm64 --x64 --publish never",
-    "package:win": "bun run bundle:doc && bun run build && electron-builder --win nsis --x64 --publish never"
+    "package:win": "bun run bundle:doc && bun run build && electron-builder --win nsis --x64 --publish never",
+    "docs:dev": "bun run --cwd docs --bun dev",
+    "docs:build": "bun run --cwd docs --bun build",
+    "docs:preview": "bun run --cwd docs --bun preview"
   },
   "trustedDependencies": [
     "electron",

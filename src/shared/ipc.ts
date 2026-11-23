@@ -1,4 +1,17 @@
 import { z } from 'zod';
+import type {
+  InstalledMiniAppRecord,
+  MiniAppBounds,
+  MiniAppBuiltinItem,
+  MiniAppDisplayMode,
+  MiniAppLaunchDevUrlInput,
+  MiniAppLaunchInput,
+  MiniAppLaunchLocalDirInput,
+  MiniAppRuntimeSnapshot,
+  MiniAppUserPref,
+  OrbitAppManifest,
+  RunningMiniAppState,
+} from './miniapp';
 
 export const ThemePreferenceSchema = z.enum(['system', 'light', 'dark']);
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
@@ -48,6 +61,7 @@ export const OrbitConfigSchema = z.object({
   lastLoginHandle: z.string().optional(),
   cachedProfile: AuthUserProfileSchema.nullable().optional(),
   docHibernateMinutes: z.number().int().min(3).max(120).default(15),
+  developerMode: z.boolean().default(false),
   globalShortcut: z.string().default('CommandOrControl+Shift+K'),
   scheduledReminders: z.array(ScheduledReminderSchema).default([
     { id: 'builtin-morning', title: '开始今日专注', time: '09:00', enabled: true },
@@ -315,5 +329,30 @@ export interface OrbitBridge {
     togglePunch: () => Promise<void>;
     openMain: () => Promise<void>;
     onStateChanged: (listener: (state: FloatingBallState) => void) => () => void;
+  };
+  hub: {
+    listBuiltins: () => Promise<MiniAppBuiltinItem[]>;
+    listInstalled: () => Promise<InstalledMiniAppRecord[]>;
+    getRuntimeSnapshot: () => Promise<MiniAppRuntimeSnapshot>;
+    launch: (input: MiniAppLaunchInput) => Promise<RunningMiniAppState>;
+    launchLocalDir: (input: MiniAppLaunchLocalDirInput) => Promise<RunningMiniAppState>;
+    launchDevUrl: (input: MiniAppLaunchDevUrlInput) => Promise<RunningMiniAppState>;
+    switchMode: (appId: string, mode: MiniAppDisplayMode) => Promise<RunningMiniAppState | null>;
+    close: (appId: string) => Promise<void>;
+    reload: (appId: string) => Promise<void>;
+    openDevTools: (appId: string) => Promise<void>;
+    toggleFullscreen: (appId: string) => Promise<void>;
+    setSidepanelBounds: (bounds: MiniAppBounds, width?: number) => Promise<void>;
+    setWorkspaceBounds: (bounds: MiniAppBounds) => Promise<void>;
+    uninstall: (appId: string) => Promise<void>;
+    clearCache: () => Promise<{ freedBytes: number }>;
+    pickLocalDir: () => Promise<{ ok: boolean; cancelled?: boolean; dirPath?: string; manifest?: OrbitAppManifest; error?: string }>;
+    pickZipFile: () => Promise<{ ok: boolean; cancelled?: boolean; filePath?: string; fileName?: string; sizeBytes?: number; manifest?: OrbitAppManifest; error?: string }>;
+    readZipFileBase64: (filePath: string) => Promise<{ base64: string; fileName: string; sizeBytes: number }>;
+    getAppPref: (appId: string) => Promise<MiniAppUserPref>;
+    setAppPref: (appId: string, patch: Partial<Omit<MiniAppUserPref, 'appId'>>) => Promise<MiniAppUserPref>;
+    listAppPrefs: () => Promise<MiniAppUserPref[]>;
+    onRuntimeChanged: (listener: (snapshot: MiniAppRuntimeSnapshot) => void) => () => void;
+    onToastRequested: (listener: (payload: { appId: string; appName: string; message: string; tone?: 'info' | 'success' | 'warning' | 'error' }) => void) => () => void;
   };
 }

@@ -1,6 +1,7 @@
 /** Orbit Go + Gin 后端接口与 WebSocket 实时推送客户端。 */
 import axios, { AxiosError } from 'axios';
 import { getOrbitEndpoints } from '@shared/env';
+import type { MiniAppCatalogItem, MiniAppDetail, OrbitAppManifest } from '@shared/miniapp';
 import { getOrbitClient } from './orbitClient';
 
 export interface OrbitAnnouncement {
@@ -185,6 +186,97 @@ export const orbitServerApi = {
   ): Promise<{ ok: boolean; requestId: string; pageTitle: string; authorName: string; description: string }> {
     const { data } = await client.post('/api/v1/doc-requests', { pageKey, reason });
     return data;
+  },
+
+  async listMiniApps(params?: {
+    type?: 'miniapp' | 'minigame';
+    engine?: string;
+    q?: string;
+    mine?: boolean;
+    pending?: boolean;
+  }): Promise<MiniAppCatalogItem[]> {
+    try {
+      const { data } = await client.get<{ items: MiniAppCatalogItem[] }>('/api/v1/apps', {
+        params: {
+          ...(params?.type ? { type: params.type } : {}),
+          ...(params?.engine && params.engine !== 'all' ? { engine: params.engine } : {}),
+          ...(params?.q ? { q: params.q } : {}),
+          ...(params?.mine ? { mine: '1' } : {}),
+          ...(params?.pending ? { pending: '1' } : {}),
+        },
+      });
+      return data.items ?? [];
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('404')) {
+        throw new Error(
+          '当前连接的 Orbit 服务端尚未升级工坊接口（HTTP 404）；内置示例与本地调试均可正常使用，发布新版 lec-orbit-server 后即可同步线上作品。',
+        );
+      }
+      throw err;
+    }
+  },
+
+  async getMiniApp(id: string): Promise<MiniAppDetail> {
+    const { data } = await client.get<MiniAppDetail>(`/api/v1/apps/${encodeURIComponent(id)}`);
+    return data;
+  },
+
+  async uploadMiniAppZip(input: {
+    blob: Blob;
+    fileName: string;
+    channel: 'preview' | 'release';
+    changelog: string;
+    directPublish?: boolean;
+  }): Promise<MiniAppCatalogItem> {
+    const form = new FormData();
+    form.append('file', input.blob, input.fileName);
+    form.append('channel', input.channel);
+    form.append('changelog', input.changelog);
+    if (input.directPublish) {
+      form.append('directPublish', 'true');
+    }
+    const { data } = await client.post<MiniAppCatalogItem>('/api/v1/apps/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120_000,
+    });
+    return data;
+  },
+
+  async importGitHubMiniApp(input: {
+    bundleUrl: string;
+    bundleSha256: string;
+    bundleSize?: number;
+    iconUrl?: string;
+    channel: 'preview' | 'release';
+    changelog: string;
+    directPublish?: boolean;
+    manifest: OrbitAppManifest;
+  }): Promise<MiniAppCatalogItem> {
+    const { data } = await client.post<MiniAppCatalogItem>('/api/v1/apps/import-github', input);
+    return data;
+  },
+
+  async reviewMiniAppVersion(
+    appId: string,
+    versionId: string,
+    decision: 'approve' | 'reject',
+    note?: string,
+  ): Promise<void> {
+    await client.post(
+      `/api/v1/apps/${encodeURIComponent(appId)}/versions/${encodeURIComponent(versionId)}/review`,
+      { decision, note: note ?? '' },
+    );
+  },
+
+  async updateMiniAppStatus(
+    appId: string,
+    payload: { status?: 'published' | 'suspended' | 'draft'; activeVersionId?: string },
+  ): Promise<void> {
+    await client.post(`/api/v1/apps/${encodeURIComponent(appId)}/status`, payload);
+  },
+
+  async recordMiniAppPlay(appId: string): Promise<void> {
+    await client.post(`/api/v1/apps/${encodeURIComponent(appId)}/play`).catch(() => undefined);
   },
 };
 

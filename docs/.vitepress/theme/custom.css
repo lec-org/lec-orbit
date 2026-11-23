@@ -1,0 +1,35 @@
+/* Orbit 工坊文档站主题微调：延续 Apple HIG 蓝紫液态玻璃视觉基调 */
+:root {
+  --vp-c-brand-1: #0a84ff;
+  --vp-c-brand-2: #2563eb;
+  --vp-c-brand-3: #1d4ed8;
+  --vp-c-brand-soft: rgba(10, 132, 255, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(125deg, #0a84ff 15%, #6366f1 70%, #8b5cf6 100%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(10, 132, 255, 0.28) 0%, rgba(139, 92, 246, 0.16) 50%, transparent 72%);
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+.dark {
+  --vp-c-brand-1: #38bdf8;
+  --vp-c-brand-2: #0ea5e9;
+  --vp-c-brand-3: #0284c7;
+  --vp-c-brand-soft: rgba(56, 189, 248, 0.16);
+}
+
+.VPFeature {
+  border-radius: 16px !important;
+  backdrop-filter: blur(14px);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.VPFeature:hover {
+  transform: translateY(-2px);
+  border-color: var(--vp-c-brand-1) !important;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+}

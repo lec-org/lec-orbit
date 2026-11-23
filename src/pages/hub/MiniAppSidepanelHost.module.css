@@ -1,0 +1,138 @@
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  border-left: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  backdrop-filter: blur(24px) saturate(160%);
+  z-index: 12;
+}
+
+.panelDragging {
+  user-select: none;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+}
+
+.resizeHandle:hover {
+  background: rgba(10, 132, 255, 0.35);
+}
+
+.header {
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--orbit-border);
+  background: var(--orbit-sidebar-bg);
+}
+
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metaChip {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.12);
+  color: #0a84ff;
+  flex-shrink: 0;
+}
+
+.isoChip {
+  display: inline-flex;
+  align-items: center;
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.iconBtn:hover {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--orbit-text);
+}
+
+.closeBtn:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+}
+
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  text-align: center;
+}
+
+.placeholderTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.placeholderSub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}

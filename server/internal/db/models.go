@@ -72,3 +72,60 @@ type NotificationRead struct {
 }
 
 func (NotificationRead) TableName() string { return "notification_reads" }
+
+// MiniApp 工坊小程序与小游戏元数据主表（仅限 lec-studio 内部成员可见与发布）。
+type MiniApp struct {
+	ID              string     `gorm:"column:id;primaryKey;type:text"`
+	Name            string     `gorm:"column:name;type:text;not null"`
+	Type            string     `gorm:"column:type;type:text;not null;index"`
+	Engine          string     `gorm:"column:engine;type:text;not null;index"`
+	Description     string     `gorm:"column:description;type:text;not null;default:''"`
+	IconURL         string     `gorm:"column:icon_url;type:text;not null;default:''"`
+	TagsJSON        string     `gorm:"column:tags_json;type:jsonb;not null;default:'[]'"`
+	OwnerID         string     `gorm:"column:owner_id;type:text;not null;index"`
+	OwnerName       string     `gorm:"column:owner_name;type:text;not null;default:''"`
+	OwnerAvatar     string     `gorm:"column:owner_avatar;type:text;not null;default:''"`
+	Status          string     `gorm:"column:status;type:text;not null;default:'draft';index"`
+	ActiveVersionID *uuid.UUID `gorm:"column:active_version_id;type:uuid"`
+	FeaturedRank    int        `gorm:"column:featured_rank;not null;default:0"`
+	PlayCount       int64      `gorm:"column:play_count;not null;default:0"`
+	CreatedAt       time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (MiniApp) TableName() string { return "mini_apps" }
+
+// MiniAppVersion 工坊应用构建版本（支持 RustFS 直传 <=100MB 与 GitHub Releases 导入双源）。
+type MiniAppVersion struct {
+	ID           uuid.UUID  `gorm:"column:id;primaryKey;type:uuid"`
+	AppID        string     `gorm:"column:app_id;type:text;not null;index:idx_mini_app_versions_app_created,priority:1"`
+	Version      string     `gorm:"column:version;type:text;not null"`
+	Channel      string     `gorm:"column:channel;type:text;not null;default:'preview'"`
+	Status       string     `gorm:"column:status;type:text;not null;default:'pending';index"`
+	SourceType   string     `gorm:"column:source_type;type:text;not null;default:'rustfs'"`
+	BundleURL    string     `gorm:"column:bundle_url;type:text;not null"`
+	BundleKey    string     `gorm:"column:bundle_key;type:text;not null;default:''"`
+	BundleSHA256 string     `gorm:"column:bundle_sha256;type:text;not null"`
+	BundleSize   int64      `gorm:"column:bundle_size;not null;default:0"`
+	ManifestJSON string     `gorm:"column:manifest_json;type:jsonb;not null;default:'{}'"`
+	Changelog    string     `gorm:"column:changelog;type:text;not null;default:''"`
+	UploaderID   string     `gorm:"column:uploader_id;type:text;not null"`
+	ReviewerID   *string    `gorm:"column:reviewer_id;type:text"`
+	ReviewNote   *string    `gorm:"column:review_note;type:text"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null;index:idx_mini_app_versions_app_created,priority:2,sort:desc"`
+	ReviewedAt   *time.Time `gorm:"column:reviewed_at"`
+}
+
+func (MiniAppVersion) TableName() string { return "mini_app_versions" }
+
+// MiniAppKV 工坊应用用户云存档（按 app_id + user_id 隔离，免自建后端）。
+type MiniAppKV struct {
+	AppID     string    `gorm:"column:app_id;primaryKey;type:text"`
+	UserID    string    `gorm:"column:user_id;primaryKey;type:text"`
+	Key       string    `gorm:"column:key;primaryKey;type:text"`
+	ValueJSON string    `gorm:"column:value_json;type:jsonb;not null;default:'null'"`
+	SizeBytes int       `gorm:"column:size_bytes;not null;default:0"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (MiniAppKV) TableName() string { return "mini_app_kv" }

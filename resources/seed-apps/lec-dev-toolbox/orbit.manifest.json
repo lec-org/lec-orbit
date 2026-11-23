@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "lec-dev-toolbox",
+  "name": "乐程研发工具箱",
+  "version": "1.0.0",
+  "type": "miniapp",
+  "engine": "web",
+  "entry": "index.html",
+  "description": "默认贴靠在 Orbit 右侧伴随栏的手机尺寸研发小工具：JSON 格式化、JWT 解析、时间戳互转与云存档便签，支持随时无损弹出独立窗口。",
+  "tags": ["效率工具", "右侧栏示例", "SDK 演示"],
+  "window": {
+    "defaultMode": "sidepanel",
+    "supportedModes": ["sidepanel", "workspace", "standalone"],
+    "sidepanelWidth": 390,
+    "width": 440,
+    "height": 720,
+    "resizable": true,
+    "allowFullscreen": false
+  },
+  "runtime": {
+    "crossOriginIsolated": false,
+    "isolationPolicy": "credentialless",
+    "pointerLock": false,
+    "gamepad": false
+  },
+  "permissions": {
+    "scopes": ["user.profile", "storage.cloud", "clipboard"],
+    "networkDomains": []
+  }
+}

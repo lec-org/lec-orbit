@@ -1,5 +1,5 @@
 /** Orbit（伴程）Electron 主进程入口：单实例锁、协议注册、三层存储、窗口管理与 IPC 编排。 */
-import { app, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, systemPreferences } from 'electron';
+import { app, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -11,9 +11,23 @@ import {
   PasswordSignInInputSchema,
   UpdateAvatarUrlInputSchema,
 } from '../src/shared/ipc';
+import {
+  MiniAppBoundsSchema,
+  MiniAppDisplayModeSchema,
+  MiniAppEngineSchema,
+  MiniAppIdSchema,
+  MiniAppPermissionScopeSchema,
+  MiniAppTypeSchema,
+  OrbitAppManifestSchema,
+} from '../src/shared/miniapp';
 import { AuthService } from './auth/authService';
 import { parseOrbitProtocolUrl } from './auth/protocol';
 import { LocalDocHost } from './doc/localDocHost';
+import {
+  MiniAppContainerManager,
+  registerMiniAppProtocolScheme,
+} from './miniapp/containerManager';
+import { MiniAppPackageManager } from './miniapp/packageManager';
 import { scanNearbyWifi } from './network/wifiScanner';
 import { ConfigStore } from './storage/configStore';
 import { LocalDB } from './storage/localDb';
@@ -24,7 +38,13 @@ import { safeSendToWindow } from './windows/safeSend';
 import { WindowManager } from './windows/windowManager';
 
 // 单实例锁：重复启动或 Windows 通过 lec-orbit:// 唤醒时交由已有主实例处理
-app.setName('Orbit');
+const isIsolatedDev = !app.isPackaged && process.env.ORBIT_DEV_ISOLATED === '1';
+app.setName(isIsolatedDev ? 'Orbit Dev' : 'Orbit');
+if (isIsolatedDev) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Orbit Dev'));
+}
+// 必须在 app.whenReady() 前注册 orbit-app:// 安全标准协议，确保 WebGL/WASM/SharedArrayBuffer 可用
+registerMiniAppProtocolScheme();
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -59,6 +79,8 @@ let authService: AuthService;
 let windowManager: WindowManager;
 let trayManager: TrayManager;
 let updater: OrbitUpdater;
+let miniAppPackageManager: MiniAppPackageManager;
+let miniAppContainerManager: MiniAppContainerManager;
 
 function currentScopeKey(): string {
   const sub = authService?.getState().profile?.subject || 'anonymous';
@@ -132,9 +154,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle('orbit:doc:setBounds', (_e, raw) =>
     windowManager.setDocBounds(DocBoundsSchema.parse(raw)),
   );
-  ipcMain.handle('orbit:doc:setOverlayVisible', (_e, raw) =>
-    windowManager.setOverlayVisible(z.boolean().parse(raw)),
-  );
+  ipcMain.handle('orbit:doc:setOverlayVisible', (_e, raw) => {
+    const visible = z.boolean().parse(raw);
+    windowManager.setOverlayVisible(visible);
+    miniAppContainerManager?.setOverlayVisible(visible);
+  });
   ipcMain.handle('orbit:doc:navigate', (_e, raw) =>
     windowManager.navigateDoc(z.string().url().parse(raw)),
   );
@@ -173,6 +197,7 @@ function registerIpcHandlers(): void {
     const next = configStore.update(OrbitConfigPatchSchema.parse(rawPatch));
     if (prev.theme !== next.theme) {
       windowManager.syncTheme(next.theme);
+      miniAppContainerManager?.syncTheme(next.theme);
     }
     if (prev.globalShortcut !== next.globalShortcut) {
       trayManager.registerShortcut(next.globalShortcut);
@@ -309,6 +334,200 @@ function registerIpcHandlers(): void {
     windowManager.setFloatingBallExpanded(false);
     windowManager.showMainWindow();
   });
+
+  // ── 工坊（小程序 + 小游戏容器）IPC ──
+  ipcMain.handle('orbit:hub:listBuiltins', () => miniAppPackageManager.listBuiltins());
+  ipcMain.handle('orbit:hub:listInstalled', () => miniAppPackageManager.listInstalled());
+  ipcMain.handle('orbit:hub:getRuntimeSnapshot', () => miniAppContainerManager.getRuntimeSnapshot());
+
+  ipcMain.handle('orbit:hub:launch', (_e, raw) => {
+    const payload = z
+      .object({
+        appId: MiniAppIdSchema,
+        mode: MiniAppDisplayModeSchema.optional(),
+        remoteBundle: z
+          .object({
+            version: z.string().min(1).max(64),
+            bundleUrl: z.string().url(),
+            bundleSha256: z.string().max(128).default(''),
+            bundleSize: z.number().int().min(0).optional(),
+            manifest: OrbitAppManifestSchema.optional(),
+            iconUrl: z.string().optional(),
+          })
+          .optional(),
+      })
+      .parse(raw);
+    return miniAppContainerManager.launch(payload);
+  });
+
+  ipcMain.handle('orbit:hub:launchLocalDir', (_e, raw) => {
+    const payload = z
+      .object({
+        dirPath: z.string().min(1).max(1024),
+        mode: MiniAppDisplayModeSchema.optional(),
+      })
+      .parse(raw);
+    return miniAppContainerManager.launchLocalDir(payload);
+  });
+
+  ipcMain.handle('orbit:hub:launchDevUrl', (_e, raw) => {
+    const payload = z
+      .object({
+        appId: MiniAppIdSchema,
+        name: z.string().trim().min(1).max(48),
+        url: z.string().url(),
+        type: MiniAppTypeSchema.optional(),
+        engine: MiniAppEngineSchema.optional(),
+        mode: MiniAppDisplayModeSchema.optional(),
+        crossOriginIsolated: z.boolean().optional(),
+      })
+      .parse(raw);
+    return miniAppContainerManager.launchDevUrl(payload);
+  });
+
+  ipcMain.handle('orbit:hub:switchMode', (_e, raw) => {
+    const payload = z
+      .object({
+        appId: MiniAppIdSchema,
+        mode: MiniAppDisplayModeSchema,
+      })
+      .parse(raw);
+    return miniAppContainerManager.switchMode(payload.appId, payload.mode);
+  });
+
+  ipcMain.handle('orbit:hub:close', (_e, rawAppId) => {
+    miniAppContainerManager.close(MiniAppIdSchema.parse(rawAppId));
+  });
+
+  ipcMain.handle('orbit:hub:reload', (_e, rawAppId) => {
+    miniAppContainerManager.reload(MiniAppIdSchema.parse(rawAppId));
+  });
+
+  ipcMain.handle('orbit:hub:openDevTools', (_e, rawAppId) => {
+    miniAppContainerManager.openDevTools(MiniAppIdSchema.parse(rawAppId));
+  });
+
+  ipcMain.handle('orbit:hub:toggleFullscreen', (_e, rawAppId) => {
+    miniAppContainerManager.toggleFullscreen(MiniAppIdSchema.parse(rawAppId));
+  });
+
+  ipcMain.handle('orbit:hub:setSidepanelBounds', (_e, raw) => {
+    const payload = z
+      .object({
+        bounds: MiniAppBoundsSchema,
+        width: z.number().int().min(320).max(640).optional(),
+      })
+      .parse(raw);
+    miniAppContainerManager.setSidepanelBounds(payload.bounds, payload.width);
+  });
+
+  ipcMain.handle('orbit:hub:setWorkspaceBounds', (_e, rawBounds) => {
+    miniAppContainerManager.setWorkspaceBounds(MiniAppBoundsSchema.parse(rawBounds));
+  });
+
+  ipcMain.handle('orbit:hub:uninstall', (_e, rawAppId) => {
+    const appId = MiniAppIdSchema.parse(rawAppId);
+    miniAppContainerManager.close(appId);
+    miniAppPackageManager.uninstall(appId);
+  });
+
+  ipcMain.handle('orbit:hub:clearCache', () => {
+    miniAppContainerManager.destroyAll();
+    return miniAppPackageManager.clearAllCache();
+  });
+
+  ipcMain.handle('orbit:hub:pickLocalDir', async () => {
+    const win = windowManager.getMainWindow();
+    const picked = win
+      ? await dialog.showOpenDialog(win, {
+          title: '选择包含 orbit.manifest.json 的应用目录',
+          properties: ['openDirectory'],
+        })
+      : await dialog.showOpenDialog({
+          title: '选择包含 orbit.manifest.json 的应用目录',
+          properties: ['openDirectory'],
+        });
+    if (picked.canceled || !picked.filePaths[0]) {
+      return { ok: false, cancelled: true };
+    }
+    try {
+      const dirPath = picked.filePaths[0];
+      const manifest = miniAppPackageManager.readLocalDirManifest(dirPath);
+      return { ok: true, dirPath, manifest };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : '读取目录清单失败',
+      };
+    }
+  });
+
+  ipcMain.handle('orbit:hub:pickZipFile', async () => {
+    const win = windowManager.getMainWindow();
+    const picked = win
+      ? await dialog.showOpenDialog(win, {
+          title: '选择工坊构建包（.zip / .lecapp）',
+          properties: ['openFile'],
+          filters: [{ name: '工坊构建包', extensions: ['zip', 'lecapp'] }],
+        })
+      : await dialog.showOpenDialog({
+          title: '选择工坊构建包（.zip / .lecapp）',
+          properties: ['openFile'],
+          filters: [{ name: '工坊构建包', extensions: ['zip', 'lecapp'] }],
+        });
+    if (picked.canceled || !picked.filePaths[0]) {
+      return { ok: false, cancelled: true };
+    }
+    try {
+      const filePath = picked.filePaths[0];
+      const { manifest, sizeBytes } = miniAppPackageManager.inspectLocalZipFile(filePath);
+      return {
+        ok: true,
+        filePath,
+        fileName: path.basename(filePath),
+        sizeBytes,
+        manifest,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : '校验构建包失败',
+      };
+    }
+  });
+
+  ipcMain.handle('orbit:hub:readZipFileBase64', (_e, rawFilePath) => {
+    const filePath = z.string().min(1).max(1024).parse(rawFilePath);
+    const { sizeBytes } = miniAppPackageManager.inspectLocalZipFile(filePath);
+    const buf = fs.readFileSync(filePath);
+    return {
+      base64: buf.toString('base64'),
+      fileName: path.basename(filePath),
+      sizeBytes,
+    };
+  });
+
+  ipcMain.handle('orbit:hub:getAppPref', (_e, rawAppId) =>
+    localDb.getAppPref(currentScopeKey(), MiniAppIdSchema.parse(rawAppId)),
+  );
+
+  ipcMain.handle('orbit:hub:setAppPref', (_e, raw) => {
+    const payload = z
+      .object({
+        appId: MiniAppIdSchema,
+        patch: z.object({
+          preferredMode: MiniAppDisplayModeSchema.optional(),
+          sidepanelWidth: z.number().int().min(320).max(640).optional(),
+          pinned: z.boolean().optional(),
+          grantedScopes: z.array(MiniAppPermissionScopeSchema).optional(),
+          lastOpenedAt: z.number().int().min(0).optional(),
+        }),
+      })
+      .parse(raw);
+    return localDb.setAppPref(currentScopeKey(), payload.appId, payload.patch);
+  });
+
+  ipcMain.handle('orbit:hub:listAppPrefs', () => localDb.listAppPrefs(currentScopeKey()));
 }
 
 app.on('open-url', (event, url) => {
@@ -337,6 +556,7 @@ function cleanupBeforeQuit(): void {
     }
   };
   safe(() => windowManager?.markQuitting());
+  safe(() => miniAppContainerManager?.destroyAll());
   safe(() => windowManager?.destroyFloatingBallWindow());
   safe(() => updater?.stopAutoCheck());
   safe(() => localDocHost?.stop());
@@ -455,11 +675,19 @@ app.whenReady().then(async () => {
     },
   });
 
-  // electron-vite 输出结构：out/main/index.js、out/preload/index.js、out/preload/docPreload.js、out/renderer/index.html
+  // electron-vite 输出结构：out/main/index.js、out/preload/index.js、out/preload/docPreload.js、out/preload/miniAppPreload.js、out/renderer/index.html
   const preloadPath = path.join(__dirname, '../preload/index.js');
   const docPreloadPath = path.join(__dirname, '../preload/docPreload.js');
+  const miniAppPreloadPath = path.join(__dirname, '../preload/miniAppPreload.js');
   const htmlPath = path.join(__dirname, '../renderer/index.html');
   const appIconPath = resolveAppIconPath('icon.png');
+  const builtinSeedDirs = [
+    process.resourcesPath ? path.join(process.resourcesPath, 'seed-apps') : '',
+    path.resolve(__dirname, '../../resources/seed-apps'),
+    path.resolve(app.getAppPath(), 'resources/seed-apps'),
+  ].filter(Boolean);
+  miniAppPackageManager = new MiniAppPackageManager(userDataDir, localDb, builtinSeedDirs);
+
   windowManager = new WindowManager(
     configStore,
     localDb,
@@ -500,6 +728,30 @@ app.whenReady().then(async () => {
     },
   });
 
+  miniAppContainerManager = new MiniAppContainerManager({
+    packageManager: miniAppPackageManager,
+    localDb,
+    getScopeKey: currentScopeKey,
+    getAuthState: () => authService.getState(),
+    getOrbitApiToken: () => authService.getApiToken('orbit'),
+    getMainWindow: () => windowManager.getMainWindow(),
+    showMainWindow: () => windowManager.showMainWindow(),
+    mainPreloadPath: preloadPath,
+    miniAppPreloadPath,
+    rendererEntry: {
+      devUrl: process.env.ELECTRON_RENDERER_URL,
+      htmlPath,
+      iconPath: appIconPath,
+    },
+    onToastRequested: (payload) => {
+      sendToMainWindow('orbit:hub:toastRequested', payload);
+    },
+  });
+  miniAppContainerManager.registerSdkIpcHandlers();
+  miniAppContainerManager.onRuntimeChanged((snapshot) => {
+    sendToMainWindow('orbit:hub:runtimeChanged', snapshot);
+  });
+
   registerIpcHandlers();
 
   authService.onStateChanged((state) => {
@@ -519,6 +771,10 @@ app.whenReady().then(async () => {
 
   const initialCfg = configStore.get();
   windowManager.syncTheme(initialCfg.theme);
+  miniAppContainerManager.syncTheme(initialCfg.theme);
+  nativeTheme.on('updated', () => {
+    miniAppContainerManager?.syncTheme(configStore.get().theme);
+  });
   windowManager.createMainWindow();
   trayManager.init(initialCfg.globalShortcut);
   trayManager.setFloatingBallEnabled(initialCfg.floatingBallEnabled);

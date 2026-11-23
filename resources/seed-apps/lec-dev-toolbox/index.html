@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>乐程研发工具箱</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --card: rgba(255, 255, 255, 0.85);
+        --border: rgba(15, 23, 42, 0.1);
+        --text: #0f172a;
+        --muted: #64748b;
+        --accent: #0a84ff;
+        --accent-soft: rgba(10, 132, 255, 0.12);
+        --ok: #16a34a;
+      }
+      html[data-theme='dark'] {
+        --bg: #0d1117;
+        --card: rgba(22, 27, 34, 0.88);
+        --border: rgba(248, 250, 252, 0.1);
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --accent-soft: rgba(56, 189, 248, 0.15);
+        --ok: #22c55e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .banner {
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .pillOk {
+        background: rgba(22, 163, 74, 0.14);
+        color: var(--ok);
+      }
+      .sub {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+      .tab {
+        padding: 7px 6px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .tab.active {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .card {
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      textarea,
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        resize: vertical;
+        outline: none;
+      }
+      textarea:focus,
+      input:focus {
+        border-color: var(--accent);
+      }
+      .btns {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+      }
+      button.btn {
+        padding: 6px 11px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      pre {
+        margin: 0;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(148, 163, 184, 0.1);
+        font-size: 11.5px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="banner">
+      <div class="row">
+        <strong style="font-size: 14px">乐程研发工具箱</strong>
+        <span id="modeBadge" class="pill">形态：检测中</span>
+      </div>
+      <div class="row">
+        <span id="userLabel" class="sub">成员：读取中…</span>
+        <span id="uptimeBadge" class="pill pillOk">存活 0s（切换形态不刷新）</span>
+      </div>
+    </section>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="json">JSON 工具</button>
+      <button class="tab" data-tab="jwt">JWT / 时间</button>
+      <button class="tab" data-tab="note">云存档便签</button>
+    </div>
+
+    <section id="panel-json" class="card">
+      <textarea id="jsonInput" rows="7" placeholder='输入 JSON，例如 {"studio":"LEC","orbit":true}'>{"studio":"LEC","container":"orbit-hub","modes":["sidepanel","workspace","standalone"]}</textarea>
+      <div class="btns">
+        <button class="btn primary" id="btnFormat">格式化</button>
+        <button class="btn" id="btnMinify">压缩</button>
+        <button class="btn" id="btnCopyJson">复制结果</button>
+      </div>
+      <div id="jsonStatus" class="sub">就绪</div>
+    </section>
+
+    <section id="panel-jwt" class="card" style="display: none">
+      <input id="tsInput" placeholder="输入 Unix 秒/毫秒时间戳（留空取当前）" />
+      <div class="btns">
+        <button class="btn primary" id="btnNow">当前时间戳</button>
+        <button class="btn" id="btnParseTs">转本地时间</button>
+      </div>
+      <pre id="tsOutput">等待转换…</pre>
+      <textarea id="jwtInput" rows="3" placeholder="粘贴 JWT Token 解析 Payload（纯本地解析，不联网）"></textarea>
+      <button class="btn" id="btnDecodeJwt">解码 JWT Payload</button>
+      <pre id="jwtOutput">等待输入…</pre>
+    </section>
+
+    <section id="panel-note" class="card" style="display: none">
+      <div class="sub">通过 window.orbitSDK.storage 自动持久化，切出再打开或换设备同步保留：</div>
+      <textarea id="noteInput" rows="7" placeholder="随手记一条待办、命令或接口地址…"></textarea>
+      <div class="btns">
+        <button class="btn primary" id="btnSaveNote">保存到 Orbit 存储</button>
+        <button class="btn" id="btnPopout">请求弹出独立窗口</button>
+      </div>
+      <div id="noteStatus" class="sub">尚未保存</div>
+    </section>
+
+    <script>
+      const sdk = window.orbitSDK;
+      const modeNames = { sidepanel: '右侧伴随栏', workspace: '主区全幅', standalone: '独立窗口' };
+      const applyTheme = (t) => {
+        document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
+      };
+
+      // 存活计时器：用于直观验证「右侧栏 ↔ 独立窗口」无损切换时页面零重载
+      let aliveSec = 0;
+      setInterval(() => {
+        aliveSec += 1;
+        document.getElementById('uptimeBadge').textContent = `存活 ${aliveSec}s（零重载）`;
+      }, 1000);
+
+      async function boot() {
+        if (!sdk) {
+          document.getElementById('userLabel').textContent = '非 Orbit 环境（浏览器预览）';
+          document.getElementById('modeBadge').textContent = '形态：浏览器';
+          return;
+        }
+        const [info, user, savedNote] = await Promise.all([
+          sdk.env.getInfo(),
+          sdk.user.getCurrent().catch(() => null),
+          sdk.storage.get('quick-note').catch(() => null),
+        ]);
+        applyTheme(info.theme);
+        document.getElementById('modeBadge').textContent = `形态：${modeNames[info.mode] || info.mode}`;
+        document.getElementById('userLabel').textContent = user
+          ? `成员：${user.displayName}`
+          : '成员：未登录';
+        if (typeof savedNote === 'string') {
+          document.getElementById('noteInput').value = savedNote;
+          document.getElementById('noteStatus').textContent = '已从 Orbit 存储恢复上次内容';
+        }
+        sdk.env.onThemeChange(applyTheme);
+        sdk.env.onModeChange((mode) => {
+          document.getElementById('modeBadge').textContent = `形态：${modeNames[mode] || mode}`;
+        });
+      }
+      void boot();
+
+      // Tabs
+      document.querySelectorAll('.tab').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.tab;
+          document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b === btn));
+          ['json', 'jwt', 'note'].forEach((id) => {
+            document.getElementById('panel-' + id).style.display = id === target ? 'flex' : 'none';
+          });
+        });
+      });
+
+      // JSON tools
+      const jsonInput = document.getElementById('jsonInput');
+      const jsonStatus = document.getElementById('jsonStatus');
+      document.getElementById('btnFormat').addEventListener('click', () => {
+        try {
+          jsonInput.value = JSON.stringify(JSON.parse(jsonInput.value), null, 2);
+          jsonStatus.textContent = '格式化成功';
+        } catch (e) {
+          jsonStatus.textContent = 'JSON 语法错误：' + e.message;
+        }
+      });
+      document.getElementById('btnMinify').addEventListener('click', () => {
+        try {
+          jsonInput.value = JSON.stringify(JSON.parse(jsonInput.value));
+          jsonStatus.textContent = '压缩成功';
+        } catch (e) {
+          jsonStatus.textContent = 'JSON 语法错误：' + e.message;
+        }
+      });
+      document.getElementById('btnCopyJson').addEventListener('click', async () => {
+        if (sdk) {
+          await sdk.clipboard.writeText(jsonInput.value);
+          await sdk.ui.toast('已复制到系统剪贴板', 'success');
+        } else {
+          await navigator.clipboard.writeText(jsonInput.value);
+        }
+      });
+
+      // Timestamp & JWT
+      document.getElementById('btnNow').addEventListener('click', () => {
+        const now = Date.now();
+        document.getElementById('tsInput').value = String(Math.floor(now / 1000));
+        document.getElementById('tsOutput').textContent = `秒：${Math.floor(now / 1000)}\n毫秒：${now}\n本地：${new Date(now).toLocaleString('zh-CN')}`;
+      });
+      document.getElementById('btnParseTs').addEventListener('click', () => {
+        const raw = document.getElementById('tsInput').value.trim();
+        const num = Number(raw);
+        if (!raw || Number.isNaN(num)) {
+          document.getElementById('tsOutput').textContent = '请输入有效数字时间戳';
+          return;
+        }
+        const ms = raw.length <= 10 ? num * 1000 : num;
+        const d = new Date(ms);
+        document.getElementById('tsOutput').textContent = `本地：${d.toLocaleString('zh-CN')}\nISO：${d.toISOString()}`;
+      });
+      document.getElementById('btnDecodeJwt').addEventListener('click', () => {
+        try {
+          const parts = document.getElementById('jwtInput').value.trim().split('.');
+          if (parts.length < 2) throw new Error('无效 JWT 结构');
+          const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const decoded = decodeURIComponent(escape(atob(b64)));
+          document.getElementById('jwtOutput').textContent = JSON.stringify(JSON.parse(decoded), null, 2);
+        } catch (e) {
+          document.getElementById('jwtOutput').textContent = '解析失败：' + e.message;
+        }
+      });
+
+      // Cloud Note
+      document.getElementById('btnSaveNote').addEventListener('click', async () => {
+        const text = document.getElementById('noteInput').value;
+        if (sdk) {
+          await sdk.storage.set('quick-note', text);
+          await sdk.ui.toast('便签已保存', 'success');
+        }
+        document.getElementById('noteStatus').textContent = `已保存于 ${new Date().toLocaleTimeString('zh-CN')}`;
+      });
+      document.getElementById('btnPopout').addEventListener('click', () => {
+        if (sdk) void sdk.ui.requestMode('standalone');
+      });
+    </script>
+  </body>
+</html>

@@ -23,7 +23,7 @@ import {
   Settings,
   Users,
 } from '@lec-space/icons';
-import { Compass, Sparkles, X } from 'lucide-react';
+import { Compass, Gamepad2, Sparkles, X } from 'lucide-react';
 import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
 import { evaluateFocusReminder } from '@shared/reminders';
 import { getOrbitClient } from '@/services/orbitClient';
@@ -33,6 +33,9 @@ import { useOrbitStore, type OrbitNavTab } from '@/stores/useOrbitStore';
 import { ApprovePage } from '@/pages/approve';
 import { DocWorkspacePage } from '@/pages/doc-workspace';
 import { FloatingBallPage } from '@/pages/floating-ball';
+import { HubPage } from '@/pages/hub';
+import { MiniAppSidepanelHost } from '@/pages/hub/MiniAppSidepanelHost';
+import { MiniAppStandaloneShell } from '@/pages/hub/MiniAppStandaloneShell';
 import { InboxPage } from '@/pages/inbox';
 import { LoginModal } from '@/pages/login';
 import { ProductNavPage } from '@/pages/product-nav';
@@ -63,6 +66,9 @@ export function App(): JSX.Element {
   const isFloatingBall = window.location.hash === '#floating-ball';
   const approveMatch = window.location.hash.match(/^#approve\/([^/?#]+)/);
   const approveChallengeId = approveMatch ? decodeURIComponent(approveMatch[1]!) : null;
+  const miniAppWinMatch = window.location.hash.match(/^#miniapp-window\/([^/?#]+)/);
+  const standaloneMiniAppId = miniAppWinMatch ? decodeURIComponent(miniAppWinMatch[1]!) : null;
+  const isAuxiliaryWindow = isFloatingBall || Boolean(approveChallengeId) || Boolean(standaloneMiniAppId);
 
   const ready = useOrbitStore((s) => s.ready);
   const activeTab = useOrbitStore((s) => s.activeTab);
@@ -76,11 +82,13 @@ export function App(): JSX.Element {
   const loginModalOpen = useOrbitStore((s) => s.loginModalOpen);
   const updateInfo = useOrbitStore((s) => s.updateInfo);
   const updateBannerDismissed = useOrbitStore((s) => s.updateBannerDismissed);
+  const hubRuntime = useOrbitStore((s) => s.hubRuntime);
 
   const bootstrap = useOrbitStore((s) => s.bootstrap);
   const setActiveTab = useOrbitStore((s) => s.setActiveTab);
   const setAuthState = useOrbitStore((s) => s.setAuthState);
   const setDocState = useOrbitStore((s) => s.setDocState);
+  const setHubRuntime = useOrbitStore((s) => s.setHubRuntime);
   const setUpdateInfo = useOrbitStore((s) => s.setUpdateInfo);
   const dismissUpdateBanner = useOrbitStore((s) => s.dismissUpdateBanner);
   const setLoginModalOpen = useOrbitStore((s) => s.setLoginModalOpen);
@@ -100,11 +108,29 @@ export function App(): JSX.Element {
   );
 
   useEffect(() => {
-    if (isFloatingBall) return;
+    if (isAuxiliaryWindow) return;
     void bootstrap();
     const orbit = getOrbitClient();
     const offAuth = orbit.auth.onStateChanged(setAuthState);
     const offDoc = orbit.doc.onStateChanged(setDocState);
+    const offHubRuntime = orbit.hub.onRuntimeChanged((snapshot) => {
+      const prevWorkspace = useOrbitStore
+        .getState()
+        .hubRuntime.apps.find((a) => a.mode === 'workspace');
+      const nextWorkspace = snapshot.apps.find((a) => a.mode === 'workspace');
+      setHubRuntime(snapshot);
+      // 独立窗或右侧栏切为主区展开时，自动切到「工坊」标签呈现主区容器
+      if (!prevWorkspace && nextWorkspace && useOrbitStore.getState().activeTab !== 'hub') {
+        setActiveTab('hub');
+      }
+    });
+    const offHubToast = orbit.hub.onToastRequested((payload) => {
+      notifyToast({
+        tone: payload.tone ?? 'info',
+        title: payload.appName,
+        description: payload.message,
+      });
+    });
     const offUpdate = orbit.system.onUpdateStateChanged((info) => {
       setUpdateInfo(info);
       if (
@@ -141,14 +167,18 @@ export function App(): JSX.Element {
     return () => {
       offAuth();
       offDoc();
+      offHubRuntime();
+      offHubToast();
       offUpdate();
       offQuickPunch();
     };
   }, [
-    isFloatingBall,
+    isAuxiliaryWindow,
     bootstrap,
     setAuthState,
     setDocState,
+    setHubRuntime,
+    setActiveTab,
     setUpdateInfo,
     setLoginModalOpen,
     toggleCheckInOut,
@@ -182,13 +212,13 @@ export function App(): JSX.Element {
   }, [profileMenuOpen, pushOverlay, popOverlay]);
 
   useEffect(() => {
-    if (isFloatingBall || !auth.authenticated) return;
+    if (isAuxiliaryWindow || !auth.authenticated) return;
     return connectOrbitWebSocket(applyOrbitWsEvent);
-  }, [isFloatingBall, auth.authenticated, applyOrbitWsEvent]);
+  }, [isAuxiliaryWindow, auth.authenticated, applyOrbitWsEvent]);
 
   // 应用主动静默同步：切回窗口、网络恢复及前台定时自动拉取，无需用户手动点刷新
   useEffect(() => {
-    if (isFloatingBall || !auth.authenticated) return;
+    if (isAuxiliaryWindow || !auth.authenticated) return;
     const onWake = () => {
       if (document.visibilityState === 'visible') {
         syncStaleData(15_000);
@@ -213,7 +243,7 @@ export function App(): JSX.Element {
 
   // 专注提醒真实定时引擎：连续专注 2h 休息、4h15m / 4h45m 防超 5 小时上限签退、周末考核冲刺提醒
   useEffect(() => {
-    if (isFloatingBall || !auth.authenticated || !config.remindersEnabled) return;
+    if (isAuxiliaryWindow || !auth.authenticated || !config.remindersEnabled) return;
     const STORAGE_KEY = 'orbit:sent-reminders:v1';
     const readSentKeys = (): Set<string> => {
       try {
@@ -279,7 +309,7 @@ export function App(): JSX.Element {
       window.clearTimeout(initialTimer);
       window.clearInterval(interval);
     };
-  }, [isFloatingBall, auth.authenticated, config.remindersEnabled, setActiveTab]);
+  }, [isAuxiliaryWindow, auth.authenticated, config.remindersEnabled, setActiveTab]);
 
   useEffect(() => {
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
@@ -316,10 +346,11 @@ export function App(): JSX.Element {
       { id: 'punch-cards', label: '卡牌工坊', icon: <Sparkles size={17} /> },
       { id: 'punch-studio', label: '工作室', icon: <Users size={17} /> },
       { id: 'doc', label: '团队文档', icon: <BookOpen size={17} /> },
+      { id: 'hub', label: '工坊', icon: <Gamepad2 size={17} />, badgeCount: hubRuntime.apps.length || undefined },
       { id: 'inbox', label: '通知中心', icon: <Bell size={17} />, badgeCount: unreadCount },
       { id: 'products', label: '应用导航', icon: <Compass size={17} /> },
     ],
-    [unreadCount],
+    [unreadCount, hubRuntime.apps.length],
   );
 
   const isMac = getOrbitClient().platform === 'darwin';
@@ -328,6 +359,14 @@ export function App(): JSX.Element {
     return (
       <ConfigProvider locale={zhCN} theme={resolvedTheme}>
         <FloatingBallPage />
+      </ConfigProvider>
+    );
+  }
+
+  if (standaloneMiniAppId) {
+    return (
+      <ConfigProvider locale={zhCN} theme={resolvedTheme}>
+        <MiniAppStandaloneShell appId={standaloneMiniAppId} />
       </ConfigProvider>
     );
   }
@@ -554,25 +593,33 @@ export function App(): JSX.Element {
               )}
           </aside>
 
-          <main className={styles.content}>
-            {isMac && activeTab !== 'doc' && (
-              <div className={`${styles.macTopDragStrip} orbit-drag`} aria-hidden="true" />
-            )}
-            {!ready ? (
-              <div className={styles.loadingState}>正在初始化工作台…</div>
-            ) : (
-              <>
-                {activeTab === 'punch-today' && <PunchTodayPage />}
-                {activeTab === 'punch-growth' && <PunchGrowthPage />}
-                {activeTab === 'punch-cards' && <PunchCardsPage />}
-                {activeTab === 'punch-studio' && <PunchStudioPage />}
-                {activeTab === 'doc' && <DocWorkspacePage />}
-                {activeTab === 'inbox' && <InboxPage />}
-                {activeTab === 'products' && <ProductNavPage />}
-                {activeTab === 'settings' && <SettingsPage />}
-              </>
-            )}
-          </main>
+          <div className={styles.mainArea}>
+            <main className={styles.content}>
+              {isMac && activeTab !== 'doc' && (
+                <div className={`${styles.macTopDragStrip} orbit-drag`} aria-hidden="true" />
+              )}
+              {!ready ? (
+                <div className={styles.loadingState}>正在初始化工作台…</div>
+              ) : (
+                <>
+                  {activeTab === 'punch-today' && <PunchTodayPage />}
+                  {activeTab === 'punch-growth' && <PunchGrowthPage />}
+                  {activeTab === 'punch-cards' && <PunchCardsPage />}
+                  {activeTab === 'punch-studio' && <PunchStudioPage />}
+                  {activeTab === 'doc' && <DocWorkspacePage />}
+                  {activeTab === 'hub' && <HubPage />}
+                  {activeTab === 'inbox' && <InboxPage />}
+                  {activeTab === 'products' && <ProductNavPage />}
+                  {activeTab === 'settings' && <SettingsPage />}
+                </>
+              )}
+            </main>
+
+            {(() => {
+              const sidepanelApp = hubRuntime.apps.find((a) => a.mode === 'sidepanel');
+              return sidepanelApp ? <MiniAppSidepanelHost app={sidepanelApp} /> : null;
+            })()}
+          </div>
 
           <Dialog
             open={updateDialogOpen}

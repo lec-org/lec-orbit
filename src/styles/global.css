@@ -83,3 +83,9 @@ body,
 :root[data-platform]:not([data-platform="darwin"]) .lg-toast-viewport[data-position="top-right"] {
   top: 48px;
 }
+
+/* 右侧伴随栏激活时，右上角 Toast 自动左移避让原生 WebContentsView，防止被顶栏截断 */
+.lg-toast-viewport[data-position="top-right"] {
+  right: calc(24px + var(--orbit-sidepanel-offset, 0px));
+  transition: right 140ms ease;
+}

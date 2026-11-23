@@ -17,6 +17,10 @@ extraResources:
     to: icons
     filter:
       - '**/*'
+  - from: resources/seed-apps
+    to: seed-apps
+    filter:
+      - '**/*'
 protocols:
   - name: Orbit Auth Protocol
     schemes:

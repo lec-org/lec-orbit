@@ -1,6 +1,15 @@
 /** Preload 安全隔离层：仅通过 contextBridge 暴露严格白名单的 window.orbit 能力。 */
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  MiniAppBounds,
+  MiniAppDisplayMode,
+  MiniAppLaunchDevUrlInput,
+  MiniAppLaunchInput,
+  MiniAppLaunchLocalDirInput,
+  MiniAppRuntimeSnapshot,
+  MiniAppUserPref,
+} from '../src/shared/miniapp';
+import type {
   ApproveChallengeEvent,
   AuthState,
   ChangePasswordInput,
@@ -134,6 +143,55 @@ const bridge: OrbitBridge = {
         listener(state);
       ipcRenderer.on('orbit:floating:stateChanged', wrapped);
       return () => ipcRenderer.removeListener('orbit:floating:stateChanged', wrapped);
+    },
+  },
+  hub: {
+    listBuiltins: () => ipcRenderer.invoke('orbit:hub:listBuiltins'),
+    listInstalled: () => ipcRenderer.invoke('orbit:hub:listInstalled'),
+    getRuntimeSnapshot: () => ipcRenderer.invoke('orbit:hub:getRuntimeSnapshot'),
+    launch: (input: MiniAppLaunchInput) => ipcRenderer.invoke('orbit:hub:launch', input),
+    launchLocalDir: (input: MiniAppLaunchLocalDirInput) =>
+      ipcRenderer.invoke('orbit:hub:launchLocalDir', input),
+    launchDevUrl: (input: MiniAppLaunchDevUrlInput) =>
+      ipcRenderer.invoke('orbit:hub:launchDevUrl', input),
+    switchMode: (appId: string, mode: MiniAppDisplayMode) =>
+      ipcRenderer.invoke('orbit:hub:switchMode', { appId, mode }),
+    close: (appId: string) => ipcRenderer.invoke('orbit:hub:close', appId),
+    reload: (appId: string) => ipcRenderer.invoke('orbit:hub:reload', appId),
+    openDevTools: (appId: string) => ipcRenderer.invoke('orbit:hub:openDevTools', appId),
+    toggleFullscreen: (appId: string) => ipcRenderer.invoke('orbit:hub:toggleFullscreen', appId),
+    setSidepanelBounds: (bounds: MiniAppBounds, width?: number) =>
+      ipcRenderer.invoke('orbit:hub:setSidepanelBounds', { bounds, width }),
+    setWorkspaceBounds: (bounds: MiniAppBounds) =>
+      ipcRenderer.invoke('orbit:hub:setWorkspaceBounds', bounds),
+    uninstall: (appId: string) => ipcRenderer.invoke('orbit:hub:uninstall', appId),
+    clearCache: () => ipcRenderer.invoke('orbit:hub:clearCache'),
+    pickLocalDir: () => ipcRenderer.invoke('orbit:hub:pickLocalDir'),
+    pickZipFile: () => ipcRenderer.invoke('orbit:hub:pickZipFile'),
+    readZipFileBase64: (filePath: string) =>
+      ipcRenderer.invoke('orbit:hub:readZipFileBase64', filePath),
+    getAppPref: (appId: string) => ipcRenderer.invoke('orbit:hub:getAppPref', appId),
+    setAppPref: (appId: string, patch: Partial<Omit<MiniAppUserPref, 'appId'>>) =>
+      ipcRenderer.invoke('orbit:hub:setAppPref', { appId, patch }),
+    listAppPrefs: () => ipcRenderer.invoke('orbit:hub:listAppPrefs'),
+    onRuntimeChanged: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, snapshot: MiniAppRuntimeSnapshot) =>
+        listener(snapshot);
+      ipcRenderer.on('orbit:hub:runtimeChanged', wrapped);
+      return () => ipcRenderer.removeListener('orbit:hub:runtimeChanged', wrapped);
+    },
+    onToastRequested: (listener) => {
+      const wrapped = (
+        _event: Electron.IpcRendererEvent,
+        payload: {
+          appId: string;
+          appName: string;
+          message: string;
+          tone?: 'info' | 'success' | 'warning' | 'error';
+        },
+      ) => listener(payload);
+      ipcRenderer.on('orbit:hub:toastRequested', wrapped);
+      return () => ipcRenderer.removeListener('orbit:hub:toastRequested', wrapped);
     },
   },
 };

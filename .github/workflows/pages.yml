@@ -1,10 +1,11 @@
-name: 部署 Orbit 官网
+name: 部署 Orbit 官网与工坊开发者文档
 
 on:
   push:
     branches: [main]
     paths:
       - 'website/**'
+      - 'docs/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -26,12 +27,29 @@ jobs:
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 安装 Bun
+        uses: oven-sh/setup-bun@v2
+      - name: 构建 VitePress 工坊开发者文档
+        working-directory: docs
+        env:
+          DOCS_BASE: /lec-orbit/docs/
+        run: |
+          bun install --frozen-lockfile || bun install
+          bun --bun run build
+      - name: 组装官网与开发者文档静态产物
+        run: |
+          rm -rf .pages-dist
+          cp -R website .pages-dist
+          mkdir -p .pages-dist/docs
+          cp -R docs/.vitepress/dist/* .pages-dist/docs/
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
-      - name: 上传官网静态产物
+      - name: 上传静态站点产物
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: .pages-dist
       - name: 部署站点
         id: deployment
         uses: actions/deploy-pages@v4

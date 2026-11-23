@@ -29,7 +29,7 @@ func NewS3Uploader(cfg config.Config) *S3Uploader {
 	}
 	return &S3Uploader{
 		cfg:        cfg,
-		httpClient: &http.Client{Timeout: 25 * time.Second},
+		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
 }
 

@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>轨道闪避 · 引擎探针</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        overflow: hidden;
+        background: radial-gradient(circle at top, #13223b 0%, #090e1a 65%);
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', sans-serif;
+        display: flex;
+        flex-direction: column;
+      }
+      .hud {
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.72);
+        backdrop-filter: blur(12px);
+      }
+      .probes {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .chip {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.16);
+        color: #cbd5e1;
+      }
+      .chip.ok {
+        background: rgba(34, 197, 94, 0.18);
+        color: #4ade80;
+      }
+      .chip.fail {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+      }
+      .scoreBox {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      .stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: rgba(9, 14, 26, 0.56);
+        backdrop-filter: blur(6px);
+        text-align: center;
+        padding: 20px;
+      }
+      .overlay h2 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .overlay p {
+        margin: 0;
+        font-size: 13px;
+        color: #94a3b8;
+        max-width: 420px;
+      }
+      .startBtn {
+        margin-top: 4px;
+        padding: 9px 22px;
+        border-radius: 999px;
+        border: none;
+        background: linear-gradient(135deg, #38bdf8, #6366f1);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 8px 24px rgba(56, 189, 248, 0.35);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="hud">
+      <div class="probes">
+        <span id="p-iso" class="chip">COOP/COEP…</span>
+        <span id="p-sab" class="chip">SharedArrayBuffer…</span>
+        <span id="p-wasm" class="chip">WASM…</span>
+        <span id="p-webgl" class="chip">WebGL2…</span>
+        <span id="p-sdk" class="chip">OrbitSDK…</span>
+      </div>
+      <div class="scoreBox">
+        <span id="scoreText">分数：0</span>
+        <span id="bestText" style="color: #38bdf8">最高：0</span>
+      </div>
+    </header>
+
+    <div class="stage">
+      <canvas id="game"></canvas>
+      <div id="overlay" class="overlay">
+        <h2>轨道闪避 · Orbit 引擎容器探针</h2>
+        <p>
+          顶部状态栏已实时校验 Cocos / Unity / Godot 依赖的全部浏览器底层能力。使用方向键、WASD 或鼠标拖动飞船躲避陨石；游戏进行中可随时点击顶栏「贴回右侧」体验零重载无损切换！
+        </p>
+        <button id="startBtn" class="startBtn">开始游戏</button>
+      </div>
+    </div>
+
+    <script>
+      const sdk = window.orbitSDK;
+      const setChip = (id, ok, text) => {
+        const el = document.getElementById(id);
+        el.textContent = text;
+        el.className = 'chip ' + (ok ? 'ok' : 'fail');
+      };
+
+      // 1. 实时探测三大游戏引擎关键能力
+      async function runEngineProbes() {
+        const iso = Boolean(window.crossOriginIsolated);
+        setChip('p-iso', iso, iso ? 'COOP/COEP ✓' : 'COOP/COEP ✗');
+
+        let sabOk = false;
+        try {
+          if (typeof SharedArrayBuffer === 'function') {
+            const sab = new SharedArrayBuffer(16);
+            const arr = new Int32Array(sab);
+            Atomics.add(arr, 0, 42);
+            sabOk = Atomics.load(arr, 0) === 42;
+          }
+        } catch {}
+        setChip('p-sab', sabOk, sabOk ? 'SharedArrayBuffer ✓' : 'SharedArrayBuffer ✗');
+
+        // 真实编译运行极简 WebAssembly 二进制模块 (add(a, b) = a + b)
+        let wasmOk = false;
+        try {
+          const wasmBytes = new Uint8Array([
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+            0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
+            0x03, 0x02, 0x01, 0x00,
+            0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,
+            0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
+          ]);
+          const { instance } = await WebAssembly.instantiate(wasmBytes);
+          wasmOk = instance.exports.add(19, 23) === 42;
+        } catch {}
+        setChip('p-wasm', wasmOk, wasmOk ? 'WASM ✓' : 'WASM ✗');
+
+        let gl2Ok = false;
+        try {
+          const testCanvas = document.createElement('canvas');
+          const gl = testCanvas.getContext('webgl2');
+          gl2Ok = Boolean(gl);
+        } catch {}
+        setChip('p-webgl', gl2Ok, gl2Ok ? 'WebGL2 ✓' : 'WebGL2 ✗');
+
+        if (sdk) {
+          const user = await sdk.user.getCurrent().catch(() => null);
+          setChip('p-sdk', true, user ? `SDK ✓ ${user.displayName}` : 'SDK ✓');
+          const savedBest = await sdk.storage.get('best-score').catch(() => 0);
+          if (typeof savedBest === 'number' && savedBest > bestScore) {
+            bestScore = savedBest;
+            document.getElementById('bestText').textContent = `最高：${bestScore}`;
+          }
+        } else {
+          setChip('p-sdk', false, 'SDK 未连接');
+        }
+      }
+
+      // 2. 60fps 轨道闪避小游戏（自适应窗口尺寸，支持切换形态时零丢失）
+      const canvas = document.getElementById('game');
+      const ctx = canvas.getContext('2d');
+      const overlay = document.getElementById('overlay');
+      let width = 800;
+      let height = 500;
+      let running = false;
+      let paused = false;
+      let score = 0;
+      let bestScore = 0;
+      const player = { x: 400, y: 400, r: 12 };
+      const keys = new Set();
+      let meteors = [];
+      let spawnTimer = 0;
+      let lastTs = performance.now();
+
+      function resize() {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        width = Math.max(200, Math.floor(rect.width));
+        height = Math.max(200, Math.floor(rect.height));
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        player.x = Math.min(width - 20, Math.max(20, player.x));
+        player.y = Math.min(height - 20, Math.max(20, player.y));
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
+      window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+      canvas.addEventListener('pointermove', (e) => {
+        if (!running) return;
+        const rect = canvas.getBoundingClientRect();
+        player.x = Math.min(width - 18, Math.max(18, e.clientX - rect.left));
+        player.y = Math.min(height - 18, Math.max(18, e.clientY - rect.top));
+      });
+
+      if (sdk && sdk.lifecycle) {
+        sdk.lifecycle.onPause(() => { paused = true; });
+        sdk.lifecycle.onResume(() => { paused = false; lastTs = performance.now(); });
+      }
+
+      function startGame() {
+        score = 0;
+        meteors = [];
+        player.x = width / 2;
+        player.y = height * 0.78;
+        running = true;
+        paused = false;
+        overlay.style.display = 'none';
+        lastTs = performance.now();
+      }
+      document.getElementById('startBtn').addEventListener('click', startGame);
+
+      function gameOver() {
+        running = false;
+        const finalScore = Math.floor(score);
+        if (finalScore > bestScore) {
+          bestScore = finalScore;
+          document.getElementById('bestText').textContent = `最高：${bestScore}`;
+          if (sdk) {
+            void sdk.storage.set('best-score', bestScore);
+            void sdk.ui.toast(`创造新纪录：${bestScore} 分！`, 'success');
+          }
+        }
+        overlay.querySelector('h2').textContent = `本局得分：${finalScore}`;
+        overlay.querySelector('p').textContent = '你的最高分已自动通过 window.orbitSDK.storage 持久化保存。';
+        document.getElementById('startBtn').textContent = '再来一局';
+        overlay.style.display = 'flex';
+      }
+
+      function frame(now) {
+        const dt = Math.min(0.05, (now - lastTs) / 1000);
+        lastTs = now;
+
+        ctx.clearRect(0, 0, width, height);
+
+        if (running && !paused) {
+          score += dt * 15;
+          document.getElementById('scoreText').textContent = `分数：${Math.floor(score)}`;
+
+          const speed = 340 * dt;
+          if (keys.has('arrowleft') || keys.has('a')) player.x -= speed;
+          if (keys.has('arrowright') || keys.has('d')) player.x += speed;
+          if (keys.has('arrowup') || keys.has('w')) player.y -= speed;
+          if (keys.has('arrowdown') || keys.has('s')) player.y += speed;
+
+          // 支持标准 Gamepad 手柄左摇杆
+          const gp = navigator.getGamepads?.()[0];
+          if (gp) {
+            if (Math.abs(gp.axes[0]) > 0.15) player.x += gp.axes[0] * speed;
+            if (Math.abs(gp.axes[1]) > 0.15) player.y += gp.axes[1] * speed;
+          }
+
+          player.x = Math.min(width - 16, Math.max(16, player.x));
+          player.y = Math.min(height - 16, Math.max(16, player.y));
+
+          spawnTimer -= dt;
+          if (spawnTimer <= 0) {
+            spawnTimer = Math.max(0.16, 0.55 - score * 0.0012);
+            meteors.push({
+              x: Math.random() * width,
+              y: -20,
+              r: 9 + Math.random() * 14,
+              vy: 150 + Math.random() * 180 + score * 0.4,
+              vx: (Math.random() - 0.5) * 70,
+            });
+          }
+
+          for (const m of meteors) {
+            m.x += m.vx * dt;
+            m.y += m.vy * dt;
+            const dx = m.x - player.x;
+            const dy = m.y - player.y;
+            if (dx * dx + dy * dy < (m.r + player.r - 2) ** 2) {
+              gameOver();
+              break;
+            }
+          }
+          meteors = meteors.filter((m) => m.y < height + 40);
+        }
+
+        // 绘制陨石
+        for (const m of meteors) {
+          ctx.beginPath();
+          ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+          ctx.fillStyle = '#f43f5e';
+          ctx.shadowBlur = 14;
+          ctx.shadowColor = 'rgba(244, 63, 94, 0.7)';
+          ctx.fill();
+        }
+
+        // 绘制飞船
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+        ctx.fillStyle = '#38bdf8';
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = 'rgba(56, 189, 248, 0.85)';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        requestAnimationFrame(frame);
+      }
+
+      void runEngineProbes();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

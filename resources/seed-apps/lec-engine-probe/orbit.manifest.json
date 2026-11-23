@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "lec-engine-probe",
+  "name": "轨道闪避 · 引擎探针",
+  "version": "1.0.0",
+  "type": "minigame",
+  "engine": "godot",
+  "entry": "index.html",
+  "description": "小游戏容器全特性验证与可玩 Demo：实时校验 COOP/COEP、SharedArrayBuffer、WASM、WebGL2 与手柄支持，内置 60fps 霓虹躲避小游戏，支持独立窗与右侧栏无损切换。",
+  "tags": ["小游戏示例", "COOP/COEP", "WASM/WebGL2"],
+  "window": {
+    "defaultMode": "standalone",
+    "supportedModes": ["standalone", "sidepanel", "workspace"],
+    "sidepanelWidth": 420,
+    "width": 960,
+    "height": 620,
+    "resizable": true,
+    "allowFullscreen": true
+  },
+  "runtime": {
+    "crossOriginIsolated": true,
+    "isolationPolicy": "credentialless",
+    "pointerLock": false,
+    "gamepad": true
+  },
+  "permissions": {
+    "scopes": ["user.profile", "storage.cloud"],
+    "networkDomains": []
+  }
+}

@@ -126,6 +126,39 @@ const browserFallback: OrbitBridge = {
     openMain: async () => undefined,
     onStateChanged: () => () => undefined,
   },
+  hub: {
+    listBuiltins: async () => [],
+    listInstalled: async () => [],
+    getRuntimeSnapshot: async () => ({ apps: [] }),
+    launch: async () => {
+      throw new Error('工坊容器仅在 Orbit 桌面客户端中运行。');
+    },
+    launchLocalDir: async () => {
+      throw new Error('本地目录调试仅在 Orbit 桌面客户端中可用。');
+    },
+    launchDevUrl: async () => {
+      throw new Error('开发热重载仅在 Orbit 桌面客户端中可用。');
+    },
+    switchMode: async () => null,
+    close: async () => undefined,
+    reload: async () => undefined,
+    openDevTools: async () => undefined,
+    toggleFullscreen: async () => undefined,
+    setSidepanelBounds: async () => undefined,
+    setWorkspaceBounds: async () => undefined,
+    uninstall: async () => undefined,
+    clearCache: async () => ({ freedBytes: 0 }),
+    pickLocalDir: async () => ({ ok: false, cancelled: true }),
+    pickZipFile: async () => ({ ok: false, cancelled: true }),
+    readZipFileBase64: async () => {
+      throw new Error('仅 Electron 桌面端支持读取本地构建包。');
+    },
+    getAppPref: async (appId) => ({ appId }),
+    setAppPref: async (appId, patch) => ({ appId, ...patch }),
+    listAppPrefs: async () => [],
+    onRuntimeChanged: () => () => undefined,
+    onToastRequested: () => () => undefined,
+  },
 };
 
 export function getOrbitClient(): OrbitBridge {

@@ -26,6 +26,7 @@ export default defineConfig({
         input: {
           index: path.resolve(__dirname, 'electron/preload.ts'),
           docPreload: path.resolve(__dirname, 'electron/doc/docPreload.ts'),
+          miniAppPreload: path.resolve(__dirname, 'electron/miniapp/miniAppPreload.ts'),
         },
       },
     },

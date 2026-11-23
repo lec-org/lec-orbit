@@ -10,6 +10,12 @@ import {
   type UpdateCheckResult,
 } from '@shared/ipc';
 import type {
+  InstalledMiniAppRecord,
+  MiniAppBuiltinItem,
+  MiniAppCatalogItem,
+  MiniAppRuntimeSnapshot,
+} from '@shared/miniapp';
+import type {
   AttendanceRecordItem,
   AttendanceSnapshot,
   CardGameView,
@@ -38,6 +44,7 @@ export type OrbitNavTab =
   | 'punch-cards'
   | 'punch-studio'
   | 'doc'
+  | 'hub'
   | 'inbox'
   | 'products'
   | 'settings';
@@ -83,12 +90,23 @@ interface OrbitStoreState {
   updateInfo: UpdateCheckResult | null;
   updateBannerDismissed: boolean;
 
+  /** 工坊（小程序 + 小游戏容器）运行态与目录数据 */
+  hubRuntime: MiniAppRuntimeSnapshot;
+  hubBuiltins: MiniAppBuiltinItem[];
+  hubInstalled: InstalledMiniAppRecord[];
+  hubCatalog: MiniAppCatalogItem[];
+  hubLoading: boolean;
+  hubError: string | null;
+
   bootstrap: () => Promise<void>;
   setActiveTab: (tab: OrbitNavTab) => void;
   setGrowthSegment: (segment: GrowthSegment) => void;
   openTitleCabinet: () => void;
   setAuthState: (auth: AuthState) => void;
   setDocState: (docState: DocViewState) => void;
+  setHubRuntime: (snapshot: MiniAppRuntimeSnapshot) => void;
+  refreshHubLocal: () => Promise<void>;
+  refreshHubData: () => Promise<void>;
   setUpdateInfo: (info: UpdateCheckResult) => void;
   dismissUpdateBanner: () => void;
   updateConfig: (patch: OrbitConfigPatch) => Promise<void>;
@@ -173,16 +191,26 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   orbitNotifications: [],
   updateInfo: null,
   updateBannerDismissed: false,
+  hubRuntime: { apps: [] },
+  hubBuiltins: [],
+  hubInstalled: [],
+  hubCatalog: [],
+  hubLoading: false,
+  hubError: null,
 
   bootstrap: async () => {
     const orbit = getOrbitClient();
-    const [config, auth, docState, docRecents, updateInfo] = await Promise.all([
-      orbit.system.getConfig(),
-      orbit.auth.getState(),
-      orbit.doc.getState(),
-      orbit.doc.listRecents(),
-      orbit.system.getUpdateState(),
-    ]);
+    const [config, auth, docState, docRecents, updateInfo, hubRuntime, hubBuiltins, hubInstalled] =
+      await Promise.all([
+        orbit.system.getConfig(),
+        orbit.auth.getState(),
+        orbit.doc.getState(),
+        orbit.doc.listRecents(),
+        orbit.system.getUpdateState(),
+        orbit.hub.getRuntimeSnapshot(),
+        orbit.hub.listBuiltins(),
+        orbit.hub.listInstalled(),
+      ]);
     set({
       ready: true,
       config,
@@ -190,6 +218,9 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       docState,
       docRecents,
       updateInfo,
+      hubRuntime,
+      hubBuiltins,
+      hubInstalled,
       loginModalOpen: !auth.authenticated,
     });
     // 若主壳发生重载后当前不在「团队文档」页，但主进程 WebContentsView 仍处于激活态，立即兜底收起
@@ -242,6 +273,8 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     } else if (tab === 'inbox') {
       if (now - lastOrbitSyncAt >= 15_000) void get().refreshOrbitCenter();
       if (now - lastPunchSyncAt >= 15_000) void get().refreshPunchData();
+    } else if (tab === 'hub') {
+      void get().refreshHubData();
     }
   },
 
@@ -282,6 +315,36 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   },
 
   setDocState: (docState) => set({ docState }),
+
+  setHubRuntime: (hubRuntime) => set({ hubRuntime }),
+
+  refreshHubLocal: async () => {
+    const orbit = getOrbitClient();
+    const [hubBuiltins, hubInstalled, hubRuntime] = await Promise.all([
+      orbit.hub.listBuiltins(),
+      orbit.hub.listInstalled(),
+      orbit.hub.getRuntimeSnapshot(),
+    ]);
+    set({ hubBuiltins, hubInstalled, hubRuntime });
+  },
+
+  refreshHubData: async () => {
+    set({ hubLoading: true, hubError: null });
+    try {
+      await get().refreshHubLocal();
+      if (get().auth.authenticated) {
+        const items = await orbitServerApi.listMiniApps();
+        set({ hubCatalog: items, hubLoading: false });
+      } else {
+        set({ hubLoading: false });
+      }
+    } catch (err) {
+      set({
+        hubLoading: false,
+        hubError: err instanceof Error ? err.message : '拉取线上工坊列表失败（本地示例仍可正常运行）',
+      });
+    }
+  },
 
   setUpdateInfo: (updateInfo) =>
     set((prev) => ({
