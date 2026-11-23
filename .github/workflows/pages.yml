@@ -36,7 +36,7 @@ jobs:
         env:
           DOCS_BASE: /lec-orbit/docs/
         run: |
-          bun install --frozen-lockfile || bun install
+          bun install --registry https://registry.npmjs.org
           bun --bun run build
       - name: 组装官网与开发者文档静态产物
         run: |
