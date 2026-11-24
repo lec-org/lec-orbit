@@ -302,6 +302,9 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     if (tab !== 'blogs' && (prev === 'blogs' || get().blogState.active)) {
       void getOrbitClient().blog.deactivate();
     }
+    if (tab !== 'hub' && prev === 'hub') {
+      void getOrbitClient().hub.setWorkspaceBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
     set({ activeTab: tab });
     if (!get().auth.authenticated) return;
     const now = Date.now();
@@ -407,9 +410,16 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       if (cached) set({ memberBlogs: cached.value });
     }
     try {
-      const items = await blogApi.listBlogs();
+      const [items, myBlogResult] = await Promise.all([
+        blogApi.listBlogs(),
+        blogApi.getMyBlog().catch(() => undefined),
+      ]);
       if (id !== blogsRequestId) return;
-      set({ memberBlogs: items, blogsLoading: false });
+      set({
+        memberBlogs: items,
+        ...(myBlogResult !== undefined ? { myBlog: myBlogResult } : {}),
+        blogsLoading: false,
+      });
       if (useCache) void storage.setCache(MEMBER_BLOG_CACHE, items).catch(() => undefined);
     } catch (error) {
       if (id !== blogsRequestId) return;

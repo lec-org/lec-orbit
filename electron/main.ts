@@ -121,6 +121,7 @@ function registerBlogIpcHandlers(): void {
   };
   handle('activate', (raw) => {
     const { bounds, url } = activation.parse(raw);
+    miniAppContainerManager?.setWorkspaceBounds({ x: 0, y: 0, width: 0, height: 0 });
     return windowManager.activateBlog(bounds, url);
   });
   handle('deactivate', () => windowManager.blog.deactivate());
@@ -426,6 +427,9 @@ function registerIpcHandlers(): void {
         mode: MiniAppDisplayModeSchema,
       })
       .parse(raw);
+    if (payload.mode === 'workspace') {
+      windowManager.blog.deactivate();
+    }
     return miniAppContainerManager.switchMode(payload.appId, payload.mode);
   });
 
@@ -456,7 +460,11 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('orbit:hub:setWorkspaceBounds', (_e, rawBounds) => {
-    miniAppContainerManager.setWorkspaceBounds(MiniAppBoundsSchema.parse(rawBounds));
+    const bounds = MiniAppBoundsSchema.parse(rawBounds);
+    if (bounds.width > 0 && bounds.height > 0) {
+      windowManager.blog.deactivate();
+    }
+    miniAppContainerManager.setWorkspaceBounds(bounds);
   });
 
   ipcMain.handle('orbit:hub:uninstall', (_e, rawAppId) => {
@@ -590,6 +598,7 @@ function cleanupBeforeQuit(): void {
     }
   };
   safe(() => windowManager?.markQuitting());
+  safe(() => windowManager?.blog.destroy());
   safe(() => miniAppContainerManager?.destroyAll());
   safe(() => windowManager?.destroyFloatingBallWindow());
   safe(() => updater?.stopAutoCheck());

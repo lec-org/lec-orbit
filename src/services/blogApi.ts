@@ -153,7 +153,13 @@ export const blogApi = {
   listRecentPosts(page: number, size: number, signal?: AbortSignal): Promise<BlogPageResult<BlogPostItem>> {
     return request('GET', '/api/v1/posts/recent', { params: { page, size }, signal });
   },
+  listHiddenBlogs(signal?: AbortSignal): Promise<MemberBlogItem[]> {
+    return request('GET', '/api/v1/admin/blogs/hidden', { signal });
+  },
   adminHideBlog(userId: string): Promise<null> {
     return request('DELETE', `/api/v1/admin/blogs/${encodeURIComponent(userId)}`);
+  },
+  adminRestoreBlog(userId: string): Promise<null> {
+    return request('POST', `/api/v1/admin/blogs/${encodeURIComponent(userId)}/restore`);
   },
 };

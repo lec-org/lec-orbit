@@ -160,7 +160,7 @@ export function MyBlogDialog({ open, onOpenChange }: {
   }
 
   const hidden = myBlog?.status === 'HIDDEN';
-  const fieldsDisabled = Boolean(busy);
+  const fieldsDisabled = Boolean(busy) || hidden;
   return (
     <Dialog
       open={open}
@@ -190,7 +190,7 @@ export function MyBlogDialog({ open, onOpenChange }: {
               form={formId}
               variant="filled"
               size="small"
-              disabled={loading || Boolean(loadError) || Boolean(busy)}
+              disabled={hidden || loading || Boolean(loadError) || Boolean(busy)}
               loading={busy === 'save'}
             >
               保存
@@ -211,7 +211,7 @@ export function MyBlogDialog({ open, onOpenChange }: {
         </div>
       ) : (
         <form id={formId} className={styles.form} onSubmit={(event) => void save(event)}>
-          {hidden && <Message className={styles.warning}>博客已被队长下架。请联系队长处理。</Message>}
+          {hidden && <Message className={styles.warning}>博客已被队长下架，当前无法修改、同步或解绑，请联系队长恢复。</Message>}
           <FormField label="博客主页 URL" required disabled={fieldsDisabled}>
             {(props) => <Input {...props} type="url" maxLength={512} variant="fill" value={form.blogUrl}
               onValueChange={(blogUrl) => setForm({ ...form, blogUrl })} placeholder="https://example.com" />}

@@ -35,10 +35,11 @@ const fromPartition = mock(() => ({
   setPermissionRequestHandler: mock(),
   on: mock(),
 }));
+const openExternalMock = mock(async () => undefined);
 
 mock.module('electron', () => ({
   session: { fromPartition },
-  shell: { openExternal: mock() },
+  shell: { openExternal: openExternalMock },
   WebContentsView: FakeView,
 }));
 
@@ -112,6 +113,9 @@ describe('博客原生视图', () => {
     expect(children).toHaveLength(1);
     expect(children[0]).not.toBe(view);
     expect(browser.getState()).toMatchObject({ hibernated: false, mounted: true, url: 'https://blog.example/article' });
+    openExternalMock.mockClear();
+    await browser.openExternal();
+    expect(openExternalMock).toHaveBeenCalledWith('https://blog.example/article');
     browser.destroy();
   });
 });

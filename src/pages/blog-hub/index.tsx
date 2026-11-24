@@ -15,13 +15,14 @@ import {
   ToolbarGroup,
   Tooltip,
 } from '@lec-space/liquidglass';
-import { ArrowLeft, ArrowRight, BookOpen, Copy, ExternalLink, House, Pencil, Plus, RefreshCw, Trash2, Users } from '@lec-space/icons';
+import { ArrowLeft, ArrowRight, BookOpen, Copy, ExternalLink, House, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Users } from '@lec-space/icons';
 import { parseBlogUrl } from '@shared/blogUrl';
 import { blogApi, hasBlogDevCaptain, hasBlogDevIdentity, type MemberBlogItem } from '@/services/blogApi';
 import { getOrbitClient, isDesktopRuntime } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { useOrbitStore } from '@/stores/useOrbitStore';
 import { BlogPostList } from './BlogPostList';
+import { HiddenBlogsDialog } from './HiddenBlogsDialog';
 import { MyBlogDialog } from './MyBlogDialog';
 import { useBlogOverlay } from './useBlogOverlay';
 import styles from './BlogHub.module.css';
@@ -58,6 +59,7 @@ export function BlogHubPage(): JSX.Element {
   const [tag, setTag] = useState<string | null>(null);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [hiddenManageOpen, setHiddenManageOpen] = useState(false);
   const [postsAuthor, setPostsAuthor] = useState<MemberBlogItem | null>(null);
   const [hideTarget, setHideTarget] = useState<MemberBlogItem | null>(null);
   const [hiding, setHiding] = useState(false);
@@ -180,6 +182,12 @@ export function BlogHubPage(): JSX.Element {
               placeholder="搜索成员或博客" variant="glass" className={styles.search} />
             <SegmentedControl aria-label="博客视图" items={VIEW_OPTIONS} value={mode}
               onValueChange={(value) => setMode(value === 'recent' ? 'recent' : 'browse')} />
+            {canHide && (
+              <Button variant="glass" size="small" icon={<RotateCcw size={14} />}
+                onClick={() => setHiddenManageOpen(true)}>
+                下架管理
+              </Button>
+            )}
             <Button variant="filled" size="small" icon={ownBlogPresent ? <Pencil size={15} /> : <Plus size={15} />}
               onClick={() => setConfigOpen(true)}>
               {ownBlogPresent ? '编辑我的博客' : '绑定我的博客'}
@@ -336,6 +344,7 @@ export function BlogHubPage(): JSX.Element {
       )}
 
       <MyBlogDialog open={configOpen && canAccess} onOpenChange={setConfigOpen} />
+      <HiddenBlogsDialog open={hiddenManageOpen && canHide} onOpenChange={setHiddenManageOpen} />
       <Drawer open={postsAuthor !== null} onOpenChange={(open) => { if (!open) setPostsAuthor(null); }}
         side="end" size="regular" title={postsAuthor ? `${memberName(postsAuthor)}的文章` : '成员文章'}>
         {postsAuthor && <BlogPostList key={postsAuthor.userId} authorId={postsAuthor.userId} onRead={readPost} />}

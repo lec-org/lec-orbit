@@ -106,7 +106,8 @@ export class BlogBrowserView {
   }
 
   async openExternal(): Promise<void> {
-    if (this.state.active && this.state.url) await shell.openExternal(this.state.url);
+    const safe = parseBlogUrl(this.state.url);
+    if (this.state.active && safe) await shell.openExternal(safe.href);
   }
 
   destroy(hibernate = false): void {
