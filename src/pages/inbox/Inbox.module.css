@@ -114,6 +114,10 @@
   background: linear-gradient(135deg, #0ea5e9, #2563eb);
 }
 
+.iconBlog {
+  background: linear-gradient(135deg, var(--orbit-accent), var(--orbit-success));
+}
+
 .iconPunch {
   background: linear-gradient(135deg, #22c55e, #059669);
 }

@@ -23,7 +23,7 @@ import {
   Settings,
   Users,
 } from '@lec-space/icons';
-import { Compass, Gamepad2, Sparkles, X } from 'lucide-react';
+import { Compass, Gamepad2, Rss, Sparkles, X } from 'lucide-react';
 import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
 import { evaluateFocusReminder } from '@shared/reminders';
 import { getOrbitClient } from '@/services/orbitClient';
@@ -31,6 +31,7 @@ import { connectOrbitWebSocket } from '@/services/orbitServerApi';
 import { notifyToast, registerOrbitToast } from '@/services/orbitToast';
 import { useOrbitStore, type OrbitNavTab } from '@/stores/useOrbitStore';
 import { ApprovePage } from '@/pages/approve';
+import { BlogHubPage } from '@/pages/blog-hub';
 import { DocWorkspacePage } from '@/pages/doc-workspace';
 import { FloatingBallPage } from '@/pages/floating-ball';
 import { HubPage } from '@/pages/hub';
@@ -89,6 +90,7 @@ export function App(): JSX.Element {
   const setAuthState = useOrbitStore((s) => s.setAuthState);
   const setDocState = useOrbitStore((s) => s.setDocState);
   const setHubRuntime = useOrbitStore((s) => s.setHubRuntime);
+  const setBlogState = useOrbitStore((s) => s.setBlogState);
   const setUpdateInfo = useOrbitStore((s) => s.setUpdateInfo);
   const dismissUpdateBanner = useOrbitStore((s) => s.dismissUpdateBanner);
   const setLoginModalOpen = useOrbitStore((s) => s.setLoginModalOpen);
@@ -131,6 +133,7 @@ export function App(): JSX.Element {
         description: payload.message,
       });
     });
+    const offBlog = orbit.blog.onStateChanged(setBlogState);
     const offUpdate = orbit.system.onUpdateStateChanged((info) => {
       setUpdateInfo(info);
       if (
@@ -169,6 +172,7 @@ export function App(): JSX.Element {
       offDoc();
       offHubRuntime();
       offHubToast();
+      offBlog();
       offUpdate();
       offQuickPunch();
     };
@@ -179,6 +183,7 @@ export function App(): JSX.Element {
     setDocState,
     setHubRuntime,
     setActiveTab,
+    setBlogState,
     setUpdateInfo,
     setLoginModalOpen,
     toggleCheckInOut,
@@ -190,7 +195,7 @@ export function App(): JSX.Element {
     return () => popOverlay();
   }, [updateDialogOpen, pushOverlay, popOverlay]);
 
-  // 个人信息卡弹层打开时自动避让内嵌 LecDoc WebContentsView，点击外部或按 Esc 自动关闭
+  // 个人信息卡弹层打开时自动避让内嵌视图，点击外部或按 Esc 自动关闭
   useEffect(() => {
     if (!profileMenuOpen) return;
     pushOverlay();
@@ -346,6 +351,7 @@ export function App(): JSX.Element {
       { id: 'punch-cards', label: '卡牌工坊', icon: <Sparkles size={17} /> },
       { id: 'punch-studio', label: '工作室', icon: <Users size={17} /> },
       { id: 'doc', label: '团队文档', icon: <BookOpen size={17} /> },
+      { id: 'blogs', label: '成员博客', icon: <Rss size={17} /> },
       { id: 'hub', label: '工坊', icon: <Gamepad2 size={17} />, badgeCount: hubRuntime.apps.length || undefined },
       { id: 'inbox', label: '通知中心', icon: <Bell size={17} />, badgeCount: unreadCount },
       { id: 'products', label: '应用导航', icon: <Compass size={17} /> },
@@ -595,7 +601,7 @@ export function App(): JSX.Element {
 
           <div className={styles.mainArea}>
             <main className={styles.content}>
-              {isMac && activeTab !== 'doc' && (
+              {isMac && activeTab !== 'doc' && activeTab !== 'blogs' && (
                 <div className={`${styles.macTopDragStrip} orbit-drag`} aria-hidden="true" />
               )}
               {!ready ? (
@@ -607,6 +613,7 @@ export function App(): JSX.Element {
                   {activeTab === 'punch-cards' && <PunchCardsPage />}
                   {activeTab === 'punch-studio' && <PunchStudioPage />}
                   {activeTab === 'doc' && <DocWorkspacePage />}
+                  {activeTab === 'blogs' && <BlogHubPage />}
                   {activeTab === 'hub' && <HubPage />}
                   {activeTab === 'inbox' && <InboxPage />}
                   {activeTab === 'products' && <ProductNavPage />}
