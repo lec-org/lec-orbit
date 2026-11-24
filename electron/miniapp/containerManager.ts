@@ -561,13 +561,11 @@ export class MiniAppContainerManager {
     }
 
     if (input.remoteBundle) {
-      const token = await this.deps.getOrbitApiToken();
       const installed = await this.deps.packageManager.ensureRemoteInstalled({
         appId: input.appId,
         version: input.remoteBundle.version,
         bundleUrl: input.remoteBundle.bundleUrl,
         bundleSha256: input.remoteBundle.bundleSha256,
-        authToken: token,
       });
       return this.mountBundle({
         manifest: installed.manifest,

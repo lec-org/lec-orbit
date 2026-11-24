@@ -165,7 +165,6 @@ export class MiniAppPackageManager {
     version: string;
     bundleUrl: string;
     bundleSha256: string;
-    authToken?: string | null;
   }): Promise<InstalledMiniAppRecord> {
     const existing = this.getInstalled(params.appId);
     if (
@@ -180,16 +179,11 @@ export class MiniAppPackageManager {
     const isGithub = isGitHubDownloadUrl(params.bundleUrl);
     const maxBytes = isGithub ? GITHUB_MAX_BUNDLE_BYTES : MINIAPP_MAX_BUNDLE_BYTES;
 
-    const headers: Record<string, string> = {
-      Accept: 'application/octet-stream, application/zip, */*',
-    };
-    if (!isGithub && params.authToken) {
-      headers.Authorization = `Bearer ${params.authToken}`;
-    }
-
+    // 构建包由公开对象存储或 GitHub Releases 分发，下载请求不携带 Orbit 凭据。
     const resp = await fetch(params.bundleUrl, {
       method: 'GET',
-      headers,
+      headers: { Accept: 'application/octet-stream, application/zip, */*' },
+      credentials: 'omit',
       redirect: 'follow',
     });
     if (!resp.ok) {

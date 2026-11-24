@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { MiniAppPackageManager } from '../electron/miniapp/packageManager';
 import {
   extractZipBundleSafely,
   inspectZipBundle,
@@ -70,6 +71,40 @@ const VALID_MANIFEST = JSON.stringify({
 });
 
 describe('miniapp zipExtractor & LocalDB v2', () => {
+  test('公开 RustFS 构建包以无凭据请求下载并校验 SHA256', async () => {
+    const zip = buildTestZip([
+      { name: 'orbit.manifest.json', content: VALID_MANIFEST },
+      { name: 'index.html', content: '<h1>ok</h1>' },
+    ]);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-public-bundle-'));
+    const db = new LocalDB(dir, ':memory:');
+    const manager = new MiniAppPackageManager(dir, db, []);
+    const download = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      if (new Headers(init?.headers).has('authorization')) {
+        return new Response(null, { status: 400 });
+      }
+      return new Response(new Uint8Array(zip), { headers: { 'Content-Length': String(zip.length) } });
+    });
+    try {
+      // 旧调用方传入模拟 Token 时，公开下载仍必须省略鉴权头。
+      const request = {
+        appId: 'demo-game',
+        version: '1.0.0',
+        bundleUrl: 'https://drive.lecspace.top/orbit/miniapps/demo-game/1.0.0.zip',
+        bundleSha256: sha256Hex(zip),
+        authToken: 'test-orbit-api-token',
+      };
+      const record = await manager.ensureRemoteInstalled(request);
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(record.sha256).toBe(request.bundleSha256);
+      expect(fs.readFileSync(path.join(record.installDir, 'index.html'), 'utf8')).toBe('<h1>ok</h1>');
+    } finally {
+      download.mockRestore();
+      db.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('正常解压 STORED + DEFLATE 混合包，并自动剥离单层包装目录', () => {
     const zip = buildTestZip([
       { name: 'my-folder/orbit.manifest.json', content: VALID_MANIFEST, deflate: true },
