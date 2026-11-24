@@ -179,6 +179,32 @@ export interface DocRecentItem {
   visitedAt: number;
 }
 
+export interface BlogViewState {
+  active: boolean;
+  mounted: boolean;
+  hibernated: boolean;
+  overlayHidden: boolean;
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  loading: boolean;
+  loadError?: string | null;
+}
+
+export const INITIAL_BLOG_VIEW_STATE: BlogViewState = {
+  active: false,
+  mounted: false,
+  hibernated: false,
+  overlayHidden: false,
+  url: '',
+  title: '',
+  canGoBack: false,
+  canGoForward: false,
+  loading: false,
+  loadError: null,
+};
+
 export interface WeeklyDraftRecord {
   week: string;
   content: string;
@@ -290,6 +316,18 @@ export interface OrbitBridge {
     listRecents: (query?: string) => Promise<DocRecentItem[]>;
     onStateChanged: (listener: (state: DocViewState) => void) => () => void;
     onEditRequestTriggered: (listener: (payload: DocEditRequestEvent) => void) => () => void;
+  };
+  blog: {
+    activate: (bounds: DocBounds, url?: string) => Promise<BlogViewState>;
+    deactivate: () => Promise<void>;
+    setBounds: (bounds: DocBounds) => Promise<void>;
+    navigate: (url: string) => Promise<void>;
+    goBack: () => Promise<void>;
+    goForward: () => Promise<void>;
+    reload: () => Promise<void>;
+    openExternal: () => Promise<void>;
+    getState: () => Promise<BlogViewState>;
+    onStateChanged: (listener: (state: BlogViewState) => void) => () => void;
   };
   storage: {
     getCache: <T = unknown>(key: string) => Promise<{ value: T; updatedAt: number } | null>;

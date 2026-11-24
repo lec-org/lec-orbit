@@ -1,5 +1,12 @@
 /** 渲染层统一访问 window.orbit 的类型安全封装；在纯浏览器调试时提供无副作用降级。 */
-import { OrbitConfigSchema, type AuthState, type DocViewState, type OrbitBridge, type OrbitConfig } from '@shared/ipc';
+import {
+  INITIAL_BLOG_VIEW_STATE,
+  OrbitConfigSchema,
+  type AuthState,
+  type DocViewState,
+  type OrbitBridge,
+  type OrbitConfig,
+} from '@shared/ipc';
 
 const fallbackConfig: OrbitConfig = OrbitConfigSchema.parse({});
 
@@ -65,6 +72,18 @@ const browserFallback: OrbitBridge = {
     listRecents: async () => [],
     onStateChanged: () => () => undefined,
     onEditRequestTriggered: () => () => undefined,
+  },
+  blog: {
+    activate: async () => INITIAL_BLOG_VIEW_STATE,
+    deactivate: async () => undefined,
+    setBounds: async () => undefined,
+    navigate: async () => undefined,
+    goBack: async () => undefined,
+    goForward: async () => undefined,
+    reload: async () => undefined,
+    openExternal: async () => undefined,
+    getState: async () => INITIAL_BLOG_VIEW_STATE,
+    onStateChanged: () => () => undefined,
   },
   storage: {
     getCache: async () => null,
