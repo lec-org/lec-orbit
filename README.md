@@ -23,6 +23,17 @@ bun run dev
 
 也可从平台根目录执行转发命令：`pnpm lec-orbit:typecheck`、`pnpm lec-orbit:test`、`pnpm lec-orbit:build`、`pnpm lec-orbit:dev`。
 
+### 成员博客联调
+
+成员博客默认连接 `https://blog-api.lecspace.top`。启动本机 `lec-blog` 后，在 PowerShell 中配置地址并运行桌面端。
+
+```powershell
+$env:VITE_BLOG_API_BASE = 'http://127.0.0.1:18080'
+bun run dev
+```
+
+桌面端使用当前 LecSSO 的 Orbit 令牌。调试启用了模拟登录的本地后端时，可设置 `VITE_BLOG_DEV_USER_ID`。可选设置 `VITE_BLOG_DEV_USERNAME`、`VITE_BLOG_DEV_DISPLAY_NAME`、`VITE_BLOG_DEV_AVATAR` 和 `VITE_BLOG_DEV_CAPTAIN=true`。模拟身份参数使用 ASCII 字符。开发请求头只在开发模式连接环回地址且没有真实令牌时发送。
+
 ## 打包与分发
 
 ```sh

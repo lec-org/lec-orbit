@@ -3,9 +3,12 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import path from 'node:path';
 
+const blogApiBase = JSON.stringify(process.env.VITE_BLOG_API_BASE || process.env.BLOG_API_BASE || '');
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ['zod'] })],
+    define: { __BLOG_API_BASE__: blogApiBase },
     build: {
       rollupOptions: {
         input: {
@@ -40,6 +43,7 @@ export default defineConfig({
     root: __dirname,
     plugins: [react()],
     define: {
+      __BLOG_API_BASE__: blogApiBase,
       __ORBIT_API_BASE__: JSON.stringify(
         process.env.VITE_ORBIT_API_BASE || process.env.ORBIT_API_BASE || '',
       ),

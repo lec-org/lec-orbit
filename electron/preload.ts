@@ -12,6 +12,7 @@ import type {
 import type {
   ApproveChallengeEvent,
   AuthState,
+  BlogViewState,
   ChangePasswordInput,
   DocBounds,
   DocEditRequestEvent,
@@ -74,6 +75,23 @@ const bridge: OrbitBridge = {
         listener(payload);
       ipcRenderer.on('orbit:doc:editRequestTriggered', wrapped);
       return () => ipcRenderer.removeListener('orbit:doc:editRequestTriggered', wrapped);
+    },
+  },
+  blog: {
+    activate: (bounds: DocBounds, url?: string) =>
+      ipcRenderer.invoke('orbit:blog:activate', { bounds, url }),
+    deactivate: () => ipcRenderer.invoke('orbit:blog:deactivate'),
+    setBounds: (bounds) => ipcRenderer.invoke('orbit:blog:setBounds', bounds),
+    navigate: (url) => ipcRenderer.invoke('orbit:blog:navigate', url),
+    goBack: () => ipcRenderer.invoke('orbit:blog:goBack'),
+    goForward: () => ipcRenderer.invoke('orbit:blog:goForward'),
+    reload: () => ipcRenderer.invoke('orbit:blog:reload'),
+    openExternal: () => ipcRenderer.invoke('orbit:blog:openExternal'),
+    getState: () => ipcRenderer.invoke('orbit:blog:getState'),
+    onStateChanged: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, state: BlogViewState) => listener(state);
+      ipcRenderer.on('orbit:blog:stateChanged', wrapped);
+      return () => ipcRenderer.removeListener('orbit:blog:stateChanged', wrapped);
     },
   },
   storage: {

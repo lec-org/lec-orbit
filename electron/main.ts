@@ -3,6 +3,8 @@ import { app, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notifi
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { parseBlogUrl } from '../src/shared/blogUrl';
+import { getOrbitEndpoints } from '../src/shared/env';
 import {
   ChangePasswordInputSchema,
   DocBoundsSchema,
@@ -100,6 +102,38 @@ function sendToMainWindow(channel: string, ...args: unknown[]): void {
   safeSendToWindow(windowManager?.getMainWindow(), channel, ...args);
 }
 
+function registerBlogIpcHandlers(): void {
+  const blogUrl = z.string().transform((raw, context) => {
+    const url = parseBlogUrl(raw);
+    if (url) return url;
+    context.addIssue({ code: 'custom', message: '博客仅支持有效的 HTTP 或 HTTPS 地址' });
+    return z.NEVER;
+  });
+  const activation = z.object({ bounds: DocBoundsSchema, url: blogUrl.optional() });
+  const handle = (channel: string, listener: (payload: unknown) => unknown) => {
+    ipcMain.handle(`orbit:blog:${channel}`, (event, payload) => {
+      const win = windowManager.getMainWindow();
+      if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) {
+        throw new Error('成员博客 IPC 仅供主窗口使用');
+      }
+      return listener(payload);
+    });
+  };
+  handle('activate', (raw) => {
+    const { bounds, url } = activation.parse(raw);
+    miniAppContainerManager?.setWorkspaceBounds({ x: 0, y: 0, width: 0, height: 0 });
+    return windowManager.activateBlog(bounds, url);
+  });
+  handle('deactivate', () => windowManager.blog.deactivate());
+  handle('setBounds', (raw) => windowManager.blog.setBounds(DocBoundsSchema.parse(raw)));
+  handle('navigate', (raw) => windowManager.blog.navigate(blogUrl.parse(raw)));
+  handle('goBack', () => windowManager.blog.goBack());
+  handle('goForward', () => windowManager.blog.goForward());
+  handle('reload', () => windowManager.blog.reload());
+  handle('openExternal', () => windowManager.blog.openExternal());
+  handle('getState', () => windowManager.blog.getState());
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle('orbit:auth:getState', () => authService.getState());
   ipcMain.handle('orbit:auth:signInWithPassword', (_e, raw) =>
@@ -170,6 +204,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('orbit:doc:listRecents', (_e, rawQuery) =>
     localDb.listDocRecents(currentScopeKey(), z.string().optional().parse(rawQuery)),
   );
+  registerBlogIpcHandlers();
 
   ipcMain.handle('orbit:storage:getCache', (_e, rawKey) =>
     localDb.getCache(currentScopeKey(), z.string().min(1).max(120).parse(rawKey)),
@@ -392,6 +427,9 @@ function registerIpcHandlers(): void {
         mode: MiniAppDisplayModeSchema,
       })
       .parse(raw);
+    if (payload.mode === 'workspace') {
+      windowManager.blog.deactivate();
+    }
     return miniAppContainerManager.switchMode(payload.appId, payload.mode);
   });
 
@@ -422,7 +460,11 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('orbit:hub:setWorkspaceBounds', (_e, rawBounds) => {
-    miniAppContainerManager.setWorkspaceBounds(MiniAppBoundsSchema.parse(rawBounds));
+    const bounds = MiniAppBoundsSchema.parse(rawBounds);
+    if (bounds.width > 0 && bounds.height > 0) {
+      windowManager.blog.deactivate();
+    }
+    miniAppContainerManager.setWorkspaceBounds(bounds);
   });
 
   ipcMain.handle('orbit:hub:uninstall', (_e, rawAppId) => {
@@ -556,6 +598,7 @@ function cleanupBeforeQuit(): void {
     }
   };
   safe(() => windowManager?.markQuitting());
+  safe(() => windowManager?.blog.destroy());
   safe(() => miniAppContainerManager?.destroyAll());
   safe(() => windowManager?.destroyFloatingBallWindow());
   safe(() => updater?.stopAutoCheck());
@@ -648,11 +691,12 @@ app.whenReady().then(async () => {
     Menu.setApplicationMenu(macMenu);
   }
 
-  // 按环境配置渲染进程 CSP：放行 blob:（卡牌鉴权图片）与 orbit.lecspace.top（Go 后端与 WS）
+  // 博客 API 只向主渲染进程开放配置的源。外部博客视图使用独立 session。
   const isDevRenderer = Boolean(process.env.ELECTRON_RENDERER_URL);
+  const blogApiOrigin = new URL(getOrbitEndpoints().blogApiBase).origin;
   const cspHeader = isDevRenderer
-    ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://sso.lecspace.top https://punch.lecspace.top https://doc.lecspace.top https://orbit.lecspace.top wss://orbit.lecspace.top http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*;"
-    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://sso.lecspace.top https://punch.lecspace.top https://doc.lecspace.top https://orbit.lecspace.top wss://orbit.lecspace.top;";
+    ? `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://sso.lecspace.top https://punch.lecspace.top https://doc.lecspace.top https://orbit.lecspace.top wss://orbit.lecspace.top ${blogApiOrigin} http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*;`
+    : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://sso.lecspace.top https://punch.lecspace.top https://doc.lecspace.top https://orbit.lecspace.top wss://orbit.lecspace.top ${blogApiOrigin};`;
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {

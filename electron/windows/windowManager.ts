@@ -10,6 +10,7 @@ import path from 'node:path';
 import { getOrbitEndpoints } from '../../src/shared/env';
 import type {
   ApproveChallengeEvent,
+  BlogViewState,
   DocBounds,
   DocPageContext,
   DocViewState,
@@ -21,6 +22,7 @@ import { ORBIT_SHARED_PARTITION } from '../auth/authService';
 import type { LocalDocHost } from '../doc/localDocHost';
 import type { ConfigStore } from '../storage/configStore';
 import type { LocalDB } from '../storage/localDb';
+import { BlogBrowserView } from './blogView';
 import { getAliveWindow, safeSendToWindow } from './safeSend';
 import {
   centerOnDisplay,
@@ -30,6 +32,7 @@ import {
 } from './windowState';
 
 export class WindowManager {
+  readonly blog: BlogBrowserView;
   private mainWindow: BrowserWindow | null = null;
   private mainWindowReady = false;
   private approveWindow: BrowserWindow | null = null;
@@ -75,6 +78,11 @@ export class WindowManager {
     private readonly approveInternalDocSignIn?: (challengeId: string) => Promise<boolean>,
   ) {
     this.docLastUrl = getOrbitEndpoints().docWebUrl;
+    this.blog = new BlogBrowserView(
+      () => this.getMainWindow(),
+      () => this.configStore.get().docHibernateMinutes,
+      (state) => safeSendToWindow(this.mainWindow, 'orbit:blog:stateChanged', state),
+    );
   }
 
   private getDocActiveOrigin(): string {
@@ -98,6 +106,7 @@ export class WindowManager {
   onAuthSessionUpdated(authenticated: boolean): void {
     this.docAutoSsoAttempted = false;
     this.docOrbitBridgeAttempted = false;
+    if (!authenticated) this.blog.destroy();
     if (authenticated && this.docView && !this.docView.webContents.isDestroyed()) {
       const url = this.docView.webContents.getURL();
       const canonical = this.localDocHost.toCanonicalUrl(url);
@@ -382,20 +391,22 @@ export class WindowManager {
       this.mainWindow = null;
       this.mainWindowReady = false;
       this.destroyDocView(false);
+      this.blog.destroy();
       this.syncFloatingBallVisibility();
     });
 
     // 主渲染层刷新（如 Shift+F5 / Cmd+R）或重载前，必须主动收起原生 WebContentsView，
     // 防止重载后回到默认「今日专注」页时云文档子视图仍残留在顶层遮挡界面。
-    win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace && this.docActive) {
-        this.deactivateDoc();
-      }
+    win.webContents.on('did-start-navigation', (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      if (this.docActive) this.deactivateDoc();
+      this.blog.destroy();
     });
     win.webContents.on('render-process-gone', () => {
       if (this.docActive) {
         this.deactivateDoc();
       }
+      this.blog.destroy();
     });
 
     if (this.rendererEntry.devUrl) {
@@ -638,6 +649,7 @@ export class WindowManager {
   }
 
   activateDoc(bounds: DocBounds, url?: string): DocViewState {
+    this.blog.deactivate();
     this.clearHibernateTimer();
     this.docActive = true;
     this.docBounds = bounds;
@@ -668,7 +680,13 @@ export class WindowManager {
   setOverlayVisible(visible: boolean): void {
     this.docOverlayHidden = visible;
     this.attachAndSyncDocBounds();
+    this.blog.setOverlayVisible(visible);
     this.emitDocState();
+  }
+
+  activateBlog(bounds: DocBounds, url?: URL): BlogViewState {
+    if (this.docActive) this.deactivateDoc();
+    return this.blog.activate(bounds, url);
   }
 
   navigateDoc(url: string): void {

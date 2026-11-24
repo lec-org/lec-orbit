@@ -1,14 +1,17 @@
-/** Orbit 全局状态管理（Zustand）：协调身份、配置、弹窗栈与 LecDoc 视图避让、Punch SWR 数据流。 */
+/** Orbit 全局状态管理（Zustand）：协调身份、配置、弹窗避让与本地缓存。 */
 import { create } from 'zustand';
 import {
+  INITIAL_BLOG_VIEW_STATE,
   OrbitConfigSchema,
   type AuthState,
+  type BlogViewState,
   type DocRecentItem,
   type DocViewState,
   type OrbitConfig,
   type OrbitConfigPatch,
   type UpdateCheckResult,
 } from '@shared/ipc';
+import { parseBlogUrl } from '@shared/blogUrl';
 import type {
   InstalledMiniAppRecord,
   MiniAppBuiltinItem,
@@ -29,6 +32,7 @@ import type {
   TeamWeeklyRankingItem,
 } from '@shared/punch';
 import { getOrbitClient } from '@/services/orbitClient';
+import { blogApi, BlogApiError, type MemberBlogItem, type MyBlogDetail } from '@/services/blogApi';
 import {
   orbitServerApi,
   type OrbitAnnouncement,
@@ -44,6 +48,7 @@ export type OrbitNavTab =
   | 'punch-cards'
   | 'punch-studio'
   | 'doc'
+  | 'blogs'
   | 'hub'
   | 'inbox'
   | 'products'
@@ -59,6 +64,13 @@ interface OrbitStoreState {
   auth: AuthState;
   docState: DocViewState;
   docRecents: DocRecentItem[];
+  memberBlogs: MemberBlogItem[];
+  myBlog: MyBlogDetail | null;
+  blogState: BlogViewState;
+  selectedBlogUserId: string | null;
+  pendingBlogUrl: string | null;
+  blogsLoading: boolean;
+  blogsError: string | null;
 
   /** 弹窗栈：任一弹窗打开时自动通知主进程隐藏原生 WebContentsView 避免层级遮挡。 */
   loginModalOpen: boolean;
@@ -107,6 +119,12 @@ interface OrbitStoreState {
   setHubRuntime: (snapshot: MiniAppRuntimeSnapshot) => void;
   refreshHubLocal: () => Promise<void>;
   refreshHubData: () => Promise<void>;
+  setBlogState: (blogState: BlogViewState) => void;
+  setMyBlog: (myBlog: MyBlogDetail | null) => void;
+  openBlogTarget: (userId: string, url?: string) => void;
+  consumeBlogUrl: () => string | null;
+  clearBlogTarget: (userId: string) => void;
+  refreshMemberBlogs: () => Promise<void>;
   setUpdateInfo: (info: UpdateCheckResult) => void;
   dismissUpdateBanner: () => void;
   updateConfig: (patch: OrbitConfigPatch) => Promise<void>;
@@ -149,6 +167,8 @@ const initialDoc: DocViewState = {
 let lastPunchSyncAt = 0;
 let lastOrbitSyncAt = 0;
 let lastCardSyncAt = 0;
+let blogsRequestId = 0;
+const MEMBER_BLOG_CACHE = 'blogs:members';
 
 function syncOverlayWithMain(state: {
   loginModalOpen: boolean;
@@ -168,6 +188,13 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   auth: initialAuth,
   docState: initialDoc,
   docRecents: [],
+  memberBlogs: [],
+  myBlog: null,
+  blogState: INITIAL_BLOG_VIEW_STATE,
+  selectedBlogUserId: null,
+  pendingBlogUrl: null,
+  blogsLoading: false,
+  blogsError: null,
   loginModalOpen: false,
   commandPaletteOpen: false,
   activeOverlayCount: 0,
@@ -200,22 +227,33 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
 
   bootstrap: async () => {
     const orbit = getOrbitClient();
-    const [config, auth, docState, docRecents, updateInfo, hubRuntime, hubBuiltins, hubInstalled] =
-      await Promise.all([
-        orbit.system.getConfig(),
-        orbit.auth.getState(),
-        orbit.doc.getState(),
-        orbit.doc.listRecents(),
-        orbit.system.getUpdateState(),
-        orbit.hub.getRuntimeSnapshot(),
-        orbit.hub.listBuiltins(),
-        orbit.hub.listInstalled(),
-      ]);
+    const [
+      config,
+      auth,
+      docState,
+      blogState,
+      docRecents,
+      updateInfo,
+      hubRuntime,
+      hubBuiltins,
+      hubInstalled,
+    ] = await Promise.all([
+      orbit.system.getConfig(),
+      orbit.auth.getState(),
+      orbit.doc.getState(),
+      orbit.blog.getState(),
+      orbit.doc.listRecents(),
+      orbit.system.getUpdateState(),
+      orbit.hub.getRuntimeSnapshot(),
+      orbit.hub.listBuiltins(),
+      orbit.hub.listInstalled(),
+    ]);
     set({
       ready: true,
       config,
       auth,
       docState,
+      blogState,
       docRecents,
       updateInfo,
       hubRuntime,
@@ -226,6 +264,9 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     // 若主壳发生重载后当前不在「团队文档」页，但主进程 WebContentsView 仍处于激活态，立即兜底收起
     if (get().activeTab !== 'doc' && docState.active) {
       void orbit.doc.deactivate();
+    }
+    if (get().activeTab !== 'blogs' && blogState.active) {
+      void orbit.blog.deactivate();
     }
     syncOverlayWithMain(get());
 
@@ -258,6 +299,12 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     if (tab !== 'doc' && (prev === 'doc' || get().docState.active)) {
       void getOrbitClient().doc.deactivate();
     }
+    if (tab !== 'blogs' && (prev === 'blogs' || get().blogState.active)) {
+      void getOrbitClient().blog.deactivate();
+    }
+    if (tab !== 'hub' && prev === 'hub') {
+      void getOrbitClient().hub.setWorkspaceBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
     set({ activeTab: tab });
     if (!get().auth.authenticated) return;
     const now = Date.now();
@@ -286,6 +333,20 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   },
 
   setAuthState: (auth) => {
+    const previous = get().auth;
+    if (auth.authenticated !== previous.authenticated || auth.profile?.subject !== previous.profile?.subject) {
+      blogsRequestId++;
+      void getOrbitClient().blog.deactivate();
+      set({
+        memberBlogs: [],
+        myBlog: null,
+        blogState: INITIAL_BLOG_VIEW_STATE,
+        selectedBlogUserId: null,
+        pendingBlogUrl: null,
+        blogsLoading: false,
+        blogsError: null,
+      });
+    }
     set({ auth, loginModalOpen: !auth.authenticated });
     syncOverlayWithMain(get());
     if (auth.authenticated) {
@@ -315,6 +376,66 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
   },
 
   setDocState: (docState) => set({ docState }),
+  setBlogState: (blogState) => set({ blogState }),
+  setMyBlog: (myBlog) => set({ myBlog }),
+
+  openBlogTarget: (userId, url) => {
+    const target = parseBlogUrl(url ?? get().memberBlogs.find((blog) => blog.userId === userId)?.blogUrl);
+    if (!userId.trim() || !target) return;
+    get().setActiveTab('blogs');
+    set({ selectedBlogUserId: userId, pendingBlogUrl: target.href });
+  },
+
+  consumeBlogUrl: () => {
+    const pending = get().pendingBlogUrl;
+    if (pending) set({ pendingBlogUrl: null });
+    return pending;
+  },
+
+  clearBlogTarget: (userId) => {
+    if (get().selectedBlogUserId !== userId) return;
+    void getOrbitClient().blog.deactivate();
+    set({ selectedBlogUserId: null, pendingBlogUrl: null });
+  },
+
+  refreshMemberBlogs: async () => {
+    const id = ++blogsRequestId;
+    const { storage } = getOrbitClient();
+    const { auth, memberBlogs } = get();
+    const useCache = auth.authenticated && Boolean(auth.profile?.subject);
+    set({ blogsLoading: true, blogsError: null });
+    if (useCache && memberBlogs.length === 0) {
+      const cached = await storage.getCache<MemberBlogItem[]>(MEMBER_BLOG_CACHE).catch(() => null);
+      if (id !== blogsRequestId) return;
+      if (cached) set({ memberBlogs: cached.value });
+    }
+    try {
+      const [items, myBlogResult] = await Promise.all([
+        blogApi.listBlogs(),
+        blogApi.getMyBlog().catch(() => undefined),
+      ]);
+      if (id !== blogsRequestId) return;
+      set({
+        memberBlogs: items,
+        ...(myBlogResult !== undefined ? { myBlog: myBlogResult } : {}),
+        blogsLoading: false,
+      });
+      if (useCache) void storage.setCache(MEMBER_BLOG_CACHE, items).catch(() => undefined);
+    } catch (error) {
+      if (id !== blogsRequestId) return;
+      const denied = error instanceof BlogApiError && (error.status === 401 || error.status === 403);
+      if (denied) {
+        const authorId = get().selectedBlogUserId;
+        if (authorId) get().clearBlogTarget(authorId);
+        if (useCache) void storage.setCache(MEMBER_BLOG_CACHE, []).catch(() => undefined);
+      }
+      set({
+        blogsLoading: false,
+        blogsError: error instanceof Error ? error.message : '无法读取成员博客',
+        ...(denied ? { memberBlogs: [] } : {}),
+      });
+    }
+  },
 
   setHubRuntime: (hubRuntime) => set({ hubRuntime }),
 

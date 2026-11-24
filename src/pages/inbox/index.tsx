@@ -34,10 +34,12 @@ import {
   Pin,
   Plus,
   Quote,
+  Rss,
   ShieldCheck,
   Underline,
   X,
 } from 'lucide-react';
+import { parseBlogUrl } from '@shared/blogUrl';
 import {
   orbitServerApi,
   type OrbitAnnouncement,
@@ -52,6 +54,7 @@ type ChannelKey =
   | 'ALL'
   | 'announcements'
   | 'lec-doc'
+  | 'lec-blog'
   | 'lec-punch'
   | 'lec-drive'
   | 'lec-oj'
@@ -101,6 +104,14 @@ const APP_CHANNELS: readonly AppChannelMeta[] = [
     group: 'apps',
   },
   {
+    id: 'lec-blog',
+    name: '成员博客',
+    subtitle: '博客文章更新',
+    icon: <Rss size={15} />,
+    accentClass: 'iconBlog',
+    group: 'apps',
+  },
+  {
     id: 'lec-drive',
     name: '云盘素材',
     subtitle: 'LecDrive · 资源更新',
@@ -136,6 +147,7 @@ const APP_CHANNELS: readonly AppChannelMeta[] = [
 
 const SOURCE_LABELS: Record<string, string> = {
   'lec-doc': '乐程云文档',
+  'lec-blog': '成员博客',
   'lec-punch': '考勤打卡',
   'lecpunch-api': '考勤打卡 API',
   'lecpunch-web': '考勤打卡前端',
@@ -150,6 +162,7 @@ const SOURCE_LABELS: Record<string, string> = {
 function normalizeSourceChannel(sourceApp: string): ChannelKey {
   const s = sourceApp.trim().toLowerCase();
   if (s === 'lec-doc' || s.startsWith('lec-doc-') || s.startsWith('lecdoc')) return 'lec-doc';
+  if (s === 'lec-blog') return 'lec-blog';
   if (s === 'lec-punch' || s.startsWith('lec-punch-') || s.startsWith('lecpunch')) return 'lec-punch';
   if (s === 'lec-drive' || s.startsWith('lec-drive-') || s.startsWith('lecdrive')) return 'lec-drive';
   if (s === 'lec-oj' || s.startsWith('lec-oj-') || s.startsWith('lecoj')) return 'lec-oj';
@@ -171,6 +184,7 @@ export function InboxPage(): JSX.Element {
   const orbitNotifications = useOrbitStore((s) => s.orbitNotifications);
   const refreshOrbitCenter = useOrbitStore((s) => s.refreshOrbitCenter);
   const setActiveTab = useOrbitStore((s) => s.setActiveTab);
+  const openBlogTarget = useOrbitStore((s) => s.openBlogTarget);
 
   const [activeChannel, setActiveChannel] = useState<ChannelKey>('ALL');
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -431,6 +445,7 @@ export function InboxPage(): JSX.Element {
       ALL: 0,
       announcements: 0,
       'lec-doc': 0,
+      'lec-blog': 0,
       'lec-punch': 0,
       'lec-drive': 0,
       'lec-oj': 0,
@@ -668,6 +683,8 @@ export function InboxPage(): JSX.Element {
                   const isDocRequest = item.eventType === 'doc.edit_request';
                   const pageUrl =
                     typeof item.payload?.pageUrl === 'string' ? item.payload.pageUrl : undefined;
+                  const blogUrl = item.sourceApp === 'lec-blog' ? parseBlogUrl(item.payload?.postUrl) : null;
+                  const authorId = typeof item.payload?.userId === 'string' ? item.payload.userId : '';
                   const chMeta = APP_CHANNELS.find(
                     (c) => c.id === normalizeSourceChannel(item.sourceApp),
                   );
@@ -731,6 +748,12 @@ export function InboxPage(): JSX.Element {
                             onClick={() => setActiveTab('doc')}
                           >
                             查看文档
+                          </Button>
+                        )}
+                        {blogUrl && authorId.trim() && (
+                          <Button variant="glass" size="small" icon={<BookOpen size={14} />}
+                            onClick={() => openBlogTarget(authorId, blogUrl.href)}>
+                            前往阅读
                           </Button>
                         )}
                         {!item.isRead && (!isDocRequest || item.actionStatus !== 'pending') && (
