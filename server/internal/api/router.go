@@ -125,7 +125,17 @@ func (s *Server) Router() *gin.Engine {
 		v1.GET("/apps/:id/kv/:key", s.handleGetMiniAppKV)
 		v1.PUT("/apps/:id/kv/:key", s.handleSetMiniAppKV)
 		v1.DELETE("/apps/:id/kv/:key", s.handleDeleteMiniAppKV)
+
+		// 工坊成员约战托管赌约（SDK v1.1.0: orbitSDK.wager）
+		v1.GET("/apps/:id/wagers/summary", s.handleGetWagerSummary)
+		v1.POST("/apps/:id/wagers", s.handleCreateMiniAppWager)
+		v1.GET("/apps/:id/wagers/:wagerId", s.handleGetMiniAppWager)
+		v1.POST("/apps/:id/wagers/:wagerId/accept", s.handleAcceptMiniAppWager)
+		v1.POST("/apps/:id/wagers/:wagerId/cancel", s.handleCancelMiniAppWager)
 	}
+
+	// 工坊小程序权威后端 S2S 赌约结算回调（HMAC-SHA256 签名鉴权）
+	r.POST("/api/miniapps/wagers/:wagerId/settle", s.handleSettleMiniAppWagerS2S)
 
 	// 内部跨应用事件总线（供 LecDoc / LecPunch / Devtron / LecOJ / LecDrive 投递更新与业务事件）
 	internal := r.Group("/internal/v1")

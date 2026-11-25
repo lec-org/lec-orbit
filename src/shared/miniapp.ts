@@ -17,8 +17,27 @@ export const MiniAppPermissionScopeSchema = z.enum([
   'user.profile',
   'storage.cloud',
   'clipboard',
+  'wager.points',
+  'wager.punch',
 ]);
 export type MiniAppPermissionScope = z.infer<typeof MiniAppPermissionScopeSchema>;
+
+export const MiniAppWagerAssetSchema = z.enum(['orbit_points', 'punch_minutes']);
+export type MiniAppWagerAsset = z.infer<typeof MiniAppWagerAssetSchema>;
+
+export const MINIAPP_WAGER_LIMITS: Record<MiniAppWagerAsset, number> = {
+  orbit_points: 50,
+  punch_minutes: 60,
+};
+
+export const MiniAppWagerCreateInputSchema = z.object({
+  asset: MiniAppWagerAssetSchema,
+  amount: z.number().int().min(1).max(60),
+  matchId: z.string().trim().min(1).max(64),
+  opponentUserId: z.string().trim().min(1).max(64).optional(),
+  title: z.string().trim().min(1).max(64),
+});
+export type MiniAppWagerCreateInput = z.infer<typeof MiniAppWagerCreateInputSchema>;
 
 export const MiniAppIdSchema = z
   .string()

@@ -129,3 +129,37 @@ type MiniAppKV struct {
 }
 
 func (MiniAppKV) TableName() string { return "mini_app_kv" }
+
+// MemberWagerWallet 成员工坊赌约账户摘要（积分余额、冻结积分与加时打卡任务）。
+type MemberWagerWallet struct {
+	UserID                  string    `gorm:"column:user_id;primaryKey;type:text" json:"userId"`
+	PointsBalance           int       `gorm:"column:points_balance;not null;default:500" json:"points"`
+	FrozenPoints            int       `gorm:"column:frozen_points;not null;default:0" json:"frozenPoints"`
+	WeeklyPunchMinutes      int       `gorm:"column:weekly_punch_minutes;not null;default:0" json:"weeklyPunchMinutes"`
+	PendingPunchDebtMinutes int       `gorm:"column:pending_punch_debt_minutes;not null;default:0" json:"pendingPunchDebtMinutes"`
+	UpdatedAt               time.Time `gorm:"column:updated_at;not null" json:"updatedAt"`
+}
+
+func (MemberWagerWallet) TableName() string { return "member_wager_wallets" }
+
+// MiniAppWager 工坊小游戏约战托管赌约（Escrow + S2S 权威结算）。
+type MiniAppWager struct {
+	ID             uuid.UUID  `gorm:"column:id;primaryKey;type:uuid" json:"wagerId"`
+	AppID          string     `gorm:"column:app_id;type:text;not null;index" json:"appId"`
+	MatchID        string     `gorm:"column:match_id;type:text;not null" json:"matchId"`
+	Title          string     `gorm:"column:title;type:text;not null;default:''" json:"title"`
+	Asset          string     `gorm:"column:asset;type:text;not null" json:"asset"` // orbit_points | punch_minutes
+	Amount         int        `gorm:"column:amount;not null" json:"amount"`
+	Status         string     `gorm:"column:status;type:text;not null;default:'pending_accept';index" json:"status"`
+	CreatorUserID  string     `gorm:"column:creator_user_id;type:text;not null;index" json:"creatorUserId"`
+	OpponentUserID string     `gorm:"column:opponent_user_id;type:text;not null;default:'';index" json:"opponentUserId,omitempty"`
+	WinnerUserID   *string    `gorm:"column:winner_user_id;type:text" json:"winnerUserId,omitempty"`
+	LoserUserID    *string    `gorm:"column:loser_user_id;type:text" json:"loserUserId,omitempty"`
+	Summary        string     `gorm:"column:summary;type:text;not null;default:''" json:"summary,omitempty"`
+	ExpiresAt      time.Time  `gorm:"column:expires_at;not null;index" json:"expiresAt"`
+	SettledAt      *time.Time `gorm:"column:settled_at" json:"settledAt,omitempty"`
+	CreatedAt      time.Time  `gorm:"column:created_at;not null" json:"createdAt"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;not null" json:"updatedAt"`
+}
+
+func (MiniAppWager) TableName() string { return "mini_app_wagers" }

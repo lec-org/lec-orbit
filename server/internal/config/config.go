@@ -21,6 +21,7 @@ type Config struct {
 	OrbitAPIResource string
 
 	InternalServiceToken string
+	MiniAppWagerSecret   string
 
 	LecDocInternalURL   string
 	LecDocInternalToken string
@@ -57,6 +58,7 @@ func Load() Config {
 		SSOM2MResource:       envOr("LEC_SSO_M2M_RESOURCE", "https://default.logto.app/api"),
 		OrbitAPIResource:     strings.TrimSpace(os.Getenv("LEC_ORBIT_API_RESOURCE")),
 		InternalServiceToken: strings.TrimSpace(os.Getenv("ORBIT_INTERNAL_TOKEN")),
+		MiniAppWagerSecret:   strings.TrimSpace(os.Getenv("ORBIT_MINIAPP_WAGER_SECRET")),
 		LecDocInternalURL:    strings.TrimRight(envOr("LEC_DOC_INTERNAL_URL", "http://lec-doc.lec-doc-production.svc.cluster.local:3000"), "/"),
 		LecDocInternalToken:  strings.TrimSpace(os.Getenv("LEC_DOC_INTERNAL_TOKEN")),
 		LecDocPublicURL:      strings.TrimRight(envOr("LEC_DOC_PUBLIC_URL", "https://doc.lecspace.top"), "/"),

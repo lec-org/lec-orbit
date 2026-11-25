@@ -78,3 +78,25 @@ func TestIsAllowedGitHubReleaseURL(t *testing.T) {
 		t.Fatal("expected non-github host rejected")
 	}
 }
+
+func TestValidateManifestWagerScopes(t *testing.T) {
+	m := Manifest{
+		ID:      "lec-xiangqi",
+		Name:    "乐程象棋",
+		Version: "1.1.0",
+		Type:    "minigame",
+		Engine:  "web",
+		Permissions: PermissionsConfig{
+			Scopes: []string{"user.profile", "storage.cloud", "clipboard", "wager.points", "wager.punch"},
+		},
+	}
+	if err := NormalizeAndValidateManifest(&m); err != nil {
+		t.Fatalf("expected wager scopes valid, got error: %v", err)
+	}
+
+	bad := m
+	bad.Permissions.Scopes = []string{"wager.unknown"}
+	if err := NormalizeAndValidateManifest(&bad); err == nil {
+		t.Fatal("expected unknown wager scope rejected")
+	}
+}

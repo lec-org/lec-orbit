@@ -28,7 +28,13 @@ var (
 	validTypes    = map[string]bool{"miniapp": true, "minigame": true}
 	validEngines  = map[string]bool{"web": true, "cocos": true, "unity": true, "godot": true, "other": true}
 	validModes    = map[string]bool{"sidepanel": true, "workspace": true, "standalone": true}
-	validScopes   = map[string]bool{"user.profile": true, "storage.cloud": true, "clipboard": true}
+	validScopes = map[string]bool{
+		"user.profile":  true,
+		"storage.cloud": true,
+		"clipboard":     true,
+		"wager.points":  true,
+		"wager.punch":   true,
+	}
 )
 
 type WindowConfig struct {

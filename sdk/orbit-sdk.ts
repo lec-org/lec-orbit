@@ -1,11 +1,44 @@
 /**
- * @lec-space/orbit-sdk（v1.0.0）
+ * @lec-space/orbit-sdk（v1.1.0）
  * 面向 Orbit 工坊小程序（React/Vue/Vanilla）与 Cocos Creator 3.x 的标准 TypeScript SDK。
  * 在 Orbit 容器外（例如普通浏览器预览）自动提供本地 localStorage 降级实现。
  */
 
 export type OrbitTheme = 'light' | 'dark';
 export type OrbitDisplayMode = 'sidepanel' | 'workspace' | 'standalone';
+export type OrbitWagerAsset = 'orbit_points' | 'punch_minutes';
+
+export interface OrbitWagerSummary {
+  points: number;
+  weeklyPunchMinutes: number;
+  pendingPunchDebtMinutes: number;
+}
+
+export interface OrbitWagerCreateInput {
+  asset: OrbitWagerAsset;
+  amount: number;
+  matchId: string;
+  opponentUserId?: string;
+  title: string;
+}
+
+export interface OrbitWagerTicket {
+  wagerId: string;
+  asset: OrbitWagerAsset;
+  amount: number;
+  status: 'pending_accept' | 'locked' | 'settled' | 'refunded';
+  creatorUserId: string;
+  opponentUserId?: string;
+  expiresAt: number;
+}
+
+export interface OrbitWagerAPI {
+  readonly isNative?: boolean;
+  getMySummary: () => Promise<OrbitWagerSummary>;
+  create: (input: OrbitWagerCreateInput) => Promise<OrbitWagerTicket>;
+  accept: (wagerId: string) => Promise<OrbitWagerTicket>;
+  cancel: (wagerId: string) => Promise<void>;
+}
 
 export interface OrbitUserProfile {
   userId: string;
@@ -27,7 +60,7 @@ export interface OrbitEnvInfo {
 }
 
 export interface OrbitSDK {
-  sdkVersion: '1.0.0';
+  sdkVersion: '1.1.0' | '1.0.0';
   isOrbit: boolean;
   env: {
     getInfo: () => Promise<OrbitEnvInfo>;
@@ -55,6 +88,7 @@ export interface OrbitSDK {
     onPause: (listener: () => void) => () => void;
     onResume: (listener: () => void) => () => void;
   };
+  wager?: OrbitWagerAPI;
 }
 
 declare global {
@@ -73,7 +107,7 @@ function createBrowserFallbackSDK(): OrbitSDK {
       : 'light';
 
   return {
-    sdkVersion: '1.0.0',
+    sdkVersion: '1.1.0',
     isOrbit: false,
     env: {
       getInfo: async () => ({
@@ -145,6 +179,32 @@ function createBrowserFallbackSDK(): OrbitSDK {
     lifecycle: {
       onPause: () => () => undefined,
       onResume: () => () => undefined,
+    },
+    wager: {
+      isNative: false,
+      getMySummary: async () => ({
+        points: 500,
+        weeklyPunchMinutes: 180,
+        pendingPunchDebtMinutes: 0,
+      }),
+      create: async (input) => ({
+        wagerId: `dev-wager-${Date.now().toString(36)}`,
+        asset: input.asset,
+        amount: input.amount,
+        status: 'pending_accept',
+        creatorUserId: 'dev-local-user',
+        opponentUserId: input.opponentUserId,
+        expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+      }),
+      accept: async (wagerId) => ({
+        wagerId,
+        asset: 'orbit_points',
+        amount: 0,
+        status: 'locked',
+        creatorUserId: 'dev-local-user',
+        expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+      }),
+      cancel: async () => undefined,
     },
   };
 }

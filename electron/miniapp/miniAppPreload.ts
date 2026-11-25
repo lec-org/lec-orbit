@@ -28,8 +28,34 @@ export interface OrbitSdkEnvInfo {
   orbitVersion: string;
 }
 
+export type OrbitSdkWagerAsset = 'orbit_points' | 'punch_minutes';
+
+export interface OrbitSdkWagerSummary {
+  points: number;
+  weeklyPunchMinutes: number;
+  pendingPunchDebtMinutes: number;
+}
+
+export interface OrbitSdkWagerCreateInput {
+  asset: OrbitSdkWagerAsset;
+  amount: number;
+  matchId: string;
+  opponentUserId?: string;
+  title: string;
+}
+
+export interface OrbitSdkWagerTicket {
+  wagerId: string;
+  asset: OrbitSdkWagerAsset;
+  amount: number;
+  status: 'pending_accept' | 'locked' | 'settled' | 'refunded';
+  creatorUserId: string;
+  opponentUserId?: string;
+  expiresAt: number;
+}
+
 const orbitSDK = {
-  sdkVersion: '1.0.0' as const,
+  sdkVersion: '1.1.0' as const,
   isOrbit: true as const,
 
   env: {
@@ -83,6 +109,18 @@ const orbitSDK = {
       ipcRenderer.on('orbit:sdk:event:resume', wrapped);
       return () => ipcRenderer.removeListener('orbit:sdk:event:resume', wrapped);
     },
+  },
+
+  wager: {
+    isNative: true as const,
+    getMySummary: (): Promise<OrbitSdkWagerSummary> =>
+      ipcRenderer.invoke('orbit:sdk:wager:getMySummary'),
+    create: (input: OrbitSdkWagerCreateInput): Promise<OrbitSdkWagerTicket> =>
+      ipcRenderer.invoke('orbit:sdk:wager:create', input),
+    accept: (wagerId: string): Promise<OrbitSdkWagerTicket> =>
+      ipcRenderer.invoke('orbit:sdk:wager:accept', wagerId),
+    cancel: (wagerId: string): Promise<void> =>
+      ipcRenderer.invoke('orbit:sdk:wager:cancel', wagerId),
   },
 };
 

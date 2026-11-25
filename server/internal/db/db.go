@@ -44,6 +44,8 @@ func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 		&MiniApp{},
 		&MiniAppVersion{},
 		&MiniAppKV{},
+		&MemberWagerWallet{},
+		&MiniAppWager{},
 	); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("GORM AutoMigrate 失败: %w", err)
