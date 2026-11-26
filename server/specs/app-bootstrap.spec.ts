@@ -51,15 +51,16 @@ describe('NestJS 12 (@nestjs/platform-node) HTTP 与 rawBody 冒烟测试', () =
     expect(body.service).toBe('lec-orbit-server');
   });
 
-  it('S2S 回调能精确捕获原始 rawBody 字节并校验非法 UUID 返回 400 { error }', async () => {
+  it('S2S 回调能精确捕获原始 rawBody 字节并校验非法 UUID 返回 400 { error, message }', async () => {
     const badResp = await fetch(`${baseUrl}/api/miniapps/economy/orders/not-a-uuid/settle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ matchId: 'm1', result: 'draw' }),
     });
     expect(badResp.status).toBe(400);
-    const badJson = (await badResp.json()) as { error: string };
+    const badJson = (await badResp.json()) as { error: string; message: string };
     expect(badJson.error).toContain('无效的订单 ID');
+    expect(badJson.message).toContain('无效的订单 ID');
 
     const rawStr = '{"matchId":"m1",  "result":"draw"}';
     const okResp = await fetch(
@@ -78,5 +79,44 @@ describe('NestJS 12 (@nestjs/platform-node) HTTP 与 rawBody 冒烟测试', () =
     );
     expect(okResp.status).toBe(200);
     expect(capturedRawBody?.toString('utf8')).toBe(rawStr);
+  });
+
+  it('OrbitHttpExceptionFilter 透出 BadRequestException 中文消息而非覆盖为 Bad Request', async () => {
+    const { BadRequestException, UnauthorizedException } = await import('@nestjs/common');
+    const filter = new OrbitHttpExceptionFilter();
+    const capture = (exc: unknown) => {
+      let statusCode = 0;
+      let payload: unknown = null;
+      const host = {
+        switchToHttp: () => ({
+          getResponse: () => ({
+            status: (code: number) => {
+              statusCode = code;
+              return {
+                json: (body: unknown) => {
+                  payload = body;
+                },
+              };
+            },
+          }),
+        }),
+      };
+      filter.catch(exc, host as never);
+      return { statusCode, payload: payload as { error: string; message: string } };
+    };
+
+    const bad = capture(new BadRequestException('可用乐币不足，需要 6 乐币（当前可用 0 乐币）'));
+    expect(bad.statusCode).toBe(400);
+    expect(bad.payload).toEqual({
+      error: '可用乐币不足，需要 6 乐币（当前可用 0 乐币）',
+      message: '可用乐币不足，需要 6 乐币（当前可用 0 乐币）',
+    });
+
+    const unauth = capture(new UnauthorizedException('缺少认证令牌'));
+    expect(unauth.statusCode).toBe(401);
+    expect(unauth.payload).toEqual({
+      error: '缺少认证令牌',
+      message: '缺少认证令牌',
+    });
   });
 });

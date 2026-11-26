@@ -444,8 +444,8 @@ export class PunchCardsService {
       .andWhere(
         `(r.actor_id = :uid
           OR r.gift->>'recipientId' = :uid
-          OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(r.defenses, '[]'::jsonb)) d WHERE d->>'recipientId' = :uid)
-          OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(r.interactions, '[]'::jsonb)) i WHERE i->>'recipientId' = :uid))`,
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.defenses) = 'array' THEN r.defenses ELSE '[]'::jsonb END) d WHERE d->>'recipientId' = :uid)
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.interactions) = 'array' THEN r.interactions ELSE '[]'::jsonb END) i WHERE i->>'recipientId' = :uid))`,
         { uid: actorId },
       )
       .orderBy('r.at', 'DESC')
@@ -571,12 +571,15 @@ export class PunchCardsService {
       .createQueryBuilder('r')
       .where('r.team_id = :teamId', { teamId })
       .andWhere(
-        `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(r.defenses, '[]'::jsonb)) d WHERE d->>'recipientId' = :uid)`,
+        `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.defenses) = 'array' THEN r.defenses ELSE '[]'::jsonb END) d WHERE d->>'recipientId' = :uid)`,
         { uid: recipientId },
       )
-      .andWhere(`NOT (COALESCE(r.defense_read_by, '[]'::jsonb) @> :uidJson::jsonb)`, {
-        uidJson: JSON.stringify([recipientId]),
-      })
+      .andWhere(
+        `NOT ((CASE WHEN jsonb_typeof(r.defense_read_by) = 'array' THEN r.defense_read_by ELSE '[]'::jsonb END) @> :uidJson::jsonb)`,
+        {
+          uidJson: JSON.stringify([recipientId]),
+        },
+      )
       .orderBy('r.at', 'ASC')
       .addOrderBy('r.receipt_key', 'ASC')
       .take(20)
@@ -595,12 +598,15 @@ export class PunchCardsService {
       .createQueryBuilder('r')
       .where('r.team_id = :teamId', { teamId })
       .andWhere(
-        `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(r.interactions, '[]'::jsonb)) i WHERE i->>'recipientId' = :uid)`,
+        `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.interactions) = 'array' THEN r.interactions ELSE '[]'::jsonb END) i WHERE i->>'recipientId' = :uid)`,
         { uid: recipientId },
       )
-      .andWhere(`NOT (COALESCE(r.interaction_read_by, '[]'::jsonb) @> :uidJson::jsonb)`, {
-        uidJson: JSON.stringify([recipientId]),
-      })
+      .andWhere(
+        `NOT ((CASE WHEN jsonb_typeof(r.interaction_read_by) = 'array' THEN r.interaction_read_by ELSE '[]'::jsonb END) @> :uidJson::jsonb)`,
+        {
+          uidJson: JSON.stringify([recipientId]),
+        },
+      )
       .orderBy('r.at', 'ASC')
       .addOrderBy('r.receipt_key', 'ASC')
       .take(20)

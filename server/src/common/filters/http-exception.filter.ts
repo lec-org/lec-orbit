@@ -38,12 +38,12 @@ export class OrbitHttpExceptionFilter implements ExceptionFilter {
         message = body;
       } else if (body && typeof body === 'object') {
         const record = body as Record<string, unknown>;
-        if (typeof record.error === 'string' && record.error.trim()) {
-          message = record.error;
-        } else if (typeof record.message === 'string' && record.message.trim()) {
+        if (typeof record.message === 'string' && record.message.trim()) {
           message = record.message;
         } else if (Array.isArray(record.message) && typeof record.message[0] === 'string') {
           message = record.message[0];
+        } else if (typeof record.error === 'string' && record.error.trim()) {
+          message = record.error;
         }
       }
     } else if (exception instanceof Error) {
@@ -52,13 +52,15 @@ export class OrbitHttpExceptionFilter implements ExceptionFilter {
       this.logger.error(`未知异常: ${String(exception)}`);
     }
 
+    const payload = { error: message, message };
+
     if (typeof res.status === 'function') {
-      res.status(status).json({ error: message });
+      res.status(status).json(payload);
       return;
     }
 
     res.statusCode = status;
     res.setHeader?.('Content-Type', 'application/json; charset=utf-8');
-    res.end?.(JSON.stringify({ error: message }));
+    res.end?.(JSON.stringify(payload));
   }
 }

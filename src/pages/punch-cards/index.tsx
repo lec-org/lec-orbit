@@ -321,10 +321,13 @@ export function PunchCardsPage(): JSX.Element {
           <Card className={styles.heroCard}>
             <div className={styles.heroStats}>
               <div className={styles.statBlock}>
-                <span className={styles.statLabel}>可用积分</span>
+                <span className={styles.statLabel}>
+                  {game.points.rule === 'unified-coin-v2' ? '可用乐币' : '可用积分'}
+                </span>
                 <strong className={styles.statValue}>{game.points.balance}</strong>
                 <span className={styles.statHint}>
                   本周累计 {game.points.earned} · 已消费 {game.points.spent}
+                  {typeof game.coinCostPerDraw === 'number' ? ` · ${game.coinCostPerDraw} 乐币/抽` : ''}
                 </span>
               </div>
               <div className={styles.statBlock}>
@@ -334,6 +337,9 @@ export function PunchCardsPage(): JSX.Element {
                 </strong>
                 <span className={styles.statHint}>
                   免费 {game.freeRemaining} 次 · 赠礼 {game.giftDraws} 次
+                  {typeof game.weeklyPaidDrawsLimit === 'number'
+                    ? ` · 付费已用 ${game.weeklyPaidDrawsUsed ?? 0}/${game.weeklyPaidDrawsLimit}`
+                    : ''}
                 </span>
               </div>
               <div className={styles.statBlock}>

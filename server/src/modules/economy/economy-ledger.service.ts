@@ -30,10 +30,123 @@ import {
 
 @Injectable()
 export class EconomyLedgerService {
+  private readonly mergedLegacyPairs = new Set<string>();
+
   constructor(
     private readonly dataSource: DataSource,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
+
+  /**
+   * 幂等合并历史迁移账户（punch_users.id -> ssoSub）：
+   * 若成员在 MongoDB 迁移时未绑定 logtoUserId，期初乐币会暂存在 legacyUserId 下；
+   * 成员后续经 LecSSO 登录绑定 ssoSub 时，在同一事务内按字典序加锁将其余额、累计荣誉值与本周真实打卡分钟数原子转入 canonicalUserId。
+   */
+  async mergeLegacyAccountIfNeeded(
+    legacyUserId: string,
+    canonicalUserId: string,
+  ): Promise<{ mergedCoins: number }> {
+    const fromId = legacyUserId.trim();
+    const toId = canonicalUserId.trim();
+    if (!fromId || !toId || fromId === toId) {
+      return { mergedCoins: 0 };
+    }
+    const pairKey = `${fromId}->${toId}`;
+    if (this.mergedLegacyPairs.has(pairKey)) {
+      return { mergedCoins: 0 };
+    }
+
+    const legacy = await this.dataSource
+      .getRepository(EconomyAccountEntity)
+      .findOne({ where: { userId: fromId } });
+    if (
+      !legacy ||
+      (legacy.coinBalance <= 0 &&
+        legacy.lifetimeEarnedCoins <= 0 &&
+        legacy.weeklyRecordedMinutes <= 0)
+    ) {
+      if (this.mergedLegacyPairs.size > 2000) this.mergedLegacyPairs.clear();
+      this.mergedLegacyPairs.add(pairKey);
+      return { mergedCoins: 0 };
+    }
+
+    const now = new Date();
+    const weekKey = getShanghaiWeekKey(now);
+    const mergedCoins = await this.dataSource.transaction(async (manager) => {
+      const accounts = await this.lockAccountsTx(manager, [fromId, toId], now);
+      const fromAcc = accounts.get(fromId)!;
+      const toAcc = accounts.get(toId)!;
+
+      const moveCoins = Math.max(0, fromAcc.coinBalance);
+      const moveLifetime = Math.max(0, fromAcc.lifetimeEarnedCoins);
+      const moveWeekMinutes =
+        fromAcc.weeklyRecordedWeekKey === weekKey ? Math.max(0, fromAcc.weeklyRecordedMinutes) : 0;
+
+      if (moveCoins === 0 && moveLifetime === 0 && moveWeekMinutes === 0) {
+        return 0;
+      }
+
+      fromAcc.coinBalance -= moveCoins;
+      fromAcc.lifetimeEarnedCoins -= moveLifetime;
+      if (moveWeekMinutes > 0) {
+        fromAcc.weeklyRecordedMinutes = 0;
+        const currentToMinutes =
+          toAcc.weeklyRecordedWeekKey === weekKey ? toAcc.weeklyRecordedMinutes : 0;
+        toAcc.weeklyRecordedMinutes = Math.max(currentToMinutes, moveWeekMinutes);
+        toAcc.weeklyRecordedWeekKey = weekKey;
+      }
+      toAcc.coinBalance += moveCoins;
+      toAcc.lifetimeEarnedCoins += moveLifetime;
+      fromAcc.updatedAt = now;
+      toAcc.updatedAt = now;
+      await manager.save(EconomyAccountEntity, [fromAcc, toAcc]);
+
+      if (moveCoins > 0) {
+        const txGroupId = randomUUID();
+        const mergeKeyBase = `migration:merge-account:${fromId}:${toId}:${txGroupId}`;
+        await manager.save(EconomyLedgerEntryEntity, [
+          manager.create(EconomyLedgerEntryEntity, {
+            entryId: randomUUID(),
+            txGroupId,
+            orderId: null,
+            appId: 'lec-punch-migration',
+            userId: fromId,
+            counterpartyUserId: toId,
+            asset: 'coin',
+            delta: -moveCoins,
+            countsTowardLifetime: false,
+            weekKey,
+            reason: 'migration_init',
+            title: '历史迁移乐币账户合并转出',
+            idempotencyKey: `${mergeKeyBase}:out`,
+            createdAt: now,
+          }),
+          manager.create(EconomyLedgerEntryEntity, {
+            entryId: randomUUID(),
+            txGroupId,
+            orderId: null,
+            appId: 'lec-punch-migration',
+            userId: toId,
+            counterpartyUserId: fromId,
+            asset: 'coin',
+            delta: moveCoins,
+            countsTowardLifetime: false,
+            weekKey,
+            reason: 'migration_init',
+            title: '历史迁移乐币账户合并转入',
+            idempotencyKey: `${mergeKeyBase}:in`,
+            createdAt: now,
+          }),
+        ]);
+      }
+
+      return moveCoins;
+    });
+
+    if (this.mergedLegacyPairs.size > 2000) this.mergedLegacyPairs.clear();
+    this.mergedLegacyPairs.add(pairKey);
+    return { mergedCoins };
+  }
 
   /**
    * 事务内按 userId 字典序升序确保账户行存在并加悲观写锁（SELECT ... FOR UPDATE）。

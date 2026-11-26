@@ -277,11 +277,14 @@ export interface CardGameView {
     bonus: number;
     spent: number;
     balance: number;
-    rule?: 'comprehensive-v1';
+    rule?: 'comprehensive-v1' | 'unified-coin-v2';
     comprehensiveSeconds?: number;
   };
   freeRemaining: number;
   giftDraws: number;
+  weeklyPaidDrawsUsed?: number;
+  weeklyPaidDrawsLimit?: number;
+  coinCostPerDraw?: number;
   pity: { sinceSR: number; sinceSSR: number; srRemaining: number; ssrRemaining: number };
   collection: CardCollectionItem[];
   players: CardGamePlayer[];

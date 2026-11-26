@@ -16,6 +16,7 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service.js';
+import { EconomyLedgerService } from '../economy/economy-ledger.service.js';
 import { PunchTeamEntity, PunchUserEntity } from './entities/punch-core.entities.js';
 import { newObjectIdHex } from './punch-shared.util.js';
 
@@ -51,6 +52,7 @@ export class PunchAuthGuard implements CanActivate {
     private readonly userRepo: Repository<PunchUserEntity>,
     @InjectRepository(PunchTeamEntity)
     private readonly teamRepo: Repository<PunchTeamEntity>,
+    private readonly economyLedger: EconomyLedgerService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -87,6 +89,9 @@ export class PunchAuthGuard implements CanActivate {
     if (member.status === 'disabled') {
       throw new ForbiddenException('当前账号已被禁用');
     }
+
+    // 兜底合并历史迁移时暂存在 punch_users.id 下的期初乐币账户到当前 ssoSub
+    await this.economyLedger.mergeLegacyAccountIfNeeded(member.id, ssoUser.userId);
 
     const effectiveRole: 'member' | 'admin' =
       ssoUser.isCaptain || member.role === 'admin' ? 'admin' : 'member';

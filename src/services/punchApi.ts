@@ -40,11 +40,13 @@ function normalizePunchError(err: unknown): PunchApiError {
     const status = err.response?.status;
     const payload = err.response?.data as { message?: unknown; error?: unknown } | undefined;
     const serverMsg =
-      typeof payload?.message === 'string'
+      typeof payload?.message === 'string' && payload.message.trim()
         ? payload.message
         : Array.isArray(payload?.message)
           ? payload.message.join('；')
-          : undefined;
+          : typeof payload?.error === 'string' && payload.error.trim()
+            ? payload.error
+            : undefined;
     if (status === 401) {
       return new PunchApiError(serverMsg || '登录凭证已失效，请重新登录 LecSSO。', 401);
     }
