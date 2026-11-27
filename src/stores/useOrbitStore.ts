@@ -1,5 +1,6 @@
 /** Orbit 全局状态管理（Zustand）：协调身份、配置、弹窗避让与本地缓存。 */
 import { create } from 'zustand';
+import { useScheduleStore } from './useScheduleStore';
 import {
   INITIAL_BLOG_VIEW_STATE,
   OrbitConfigSchema,
@@ -35,6 +36,7 @@ import type {
   TeamWeeklyRankingItem,
 } from '@shared/punch';
 import { getOrbitClient } from '@/services/orbitClient';
+import { useCalendarStore } from '@/stores/useCalendarStore';
 import {
   blogApi,
   BlogApiError,
@@ -54,6 +56,7 @@ import { punchApi, PunchApiError } from '@/services/punchApi';
 
 export type OrbitNavTab =
   | 'punch-today'
+  | 'schedule'
   | 'punch-growth'
   | 'punch-cards'
   | 'punch-studio'
@@ -381,6 +384,9 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       lastEnvLeaveNotifiedAt = 0;
       envLeaveNotifiedCount = 0;
       void getOrbitClient().blog.deactivate();
+      // 登出或切换账号时同步重置日历与课表 Store，防止旧账号日程/课表残留串号并污染新账号云端快照
+      useCalendarStore.getState().reset();
+      useScheduleStore.getState().reset();
       set({
         memberBlogs: [],
         myBlog: null,
@@ -874,6 +880,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     }
     if (now - lastOrbitSyncAt >= minIntervalMs) {
       void get().refreshOrbitCenter();
+      void useCalendarStore.getState().syncStudioEvents({ silent: true });
     }
   },
 
@@ -1162,6 +1169,13 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
 
   applyOrbitWsEvent: (event) => {
     const mySub = get().auth.profile?.subject;
+    if (
+      useCalendarStore
+        .getState()
+        .applyStudioWsEvent(event, mySub, () => get().setActiveTab('schedule'))
+    ) {
+      return;
+    }
     if (event.type === 'announcement.created') {
       const ann = event.payload as unknown as OrbitAnnouncement;
       const isAuthor = ann.authorId === mySub;

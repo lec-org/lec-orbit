@@ -177,6 +177,104 @@ export interface MiniAppLeaderboardItem {
   myRatingScore: number | null;
 }
 
+export type StudioAttendeeResponse = 'accepted' | 'tentative' | 'declined';
+
+export interface StudioCalendarEventDTO {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  allDay: boolean;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  reminderMinutes: number | null;
+  attendeeUserIds?: string[];
+  attendeeGrades?: number[];
+  attendeeResponses?: Record<string, StudioAttendeeResponse>;
+  creatorId: string;
+  creatorName: string;
+  creatorAvatar: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudioCalendarEventPayload {
+  title: string;
+  description?: string;
+  location?: string;
+  allDay?: boolean;
+  startDate: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  reminderMinutes?: number | null;
+  attendeeUserIds?: string[];
+  attendeeGrades?: number[];
+}
+
+export interface FreeBusyBlockDTO {
+  id: string;
+  kind: 'course' | 'personal' | 'studio';
+  title: string;
+  location: string;
+  allDay: boolean;
+  startTime: string;
+  endTime: string;
+  color: string;
+  status: StudioAttendeeResponse;
+  meta?: string;
+}
+
+export interface MemberFreeBusyTimelineDTO {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+  enrollYear: number | null;
+  isCaptain: boolean;
+  hasScheduleSynced: boolean;
+  snapshotUpdatedAt: string | null;
+  blocks: FreeBusyBlockDTO[];
+}
+
+export interface FreeBusySnapshotPayload {
+  schedule: {
+    scheduleName: string;
+    startDate: string;
+    totalWeeks: number;
+    weekStartDay: number;
+    slots: Array<{ section: number; startTime: string; endTime: string }>;
+    courses: Array<{
+      id: string;
+      name: string;
+      color: string;
+      meetings: Array<{
+        id: string;
+        dayOfWeek: number;
+        startSection: number;
+        endSection: number;
+        weeks: number[];
+        location: string;
+        teacher: string;
+      }>;
+    }>;
+  } | null;
+  personalEvents: Array<{
+    id: string;
+    title: string;
+    location: string;
+    allDay: boolean;
+    startDate: string;
+    endDate: string;
+    startTime: string;
+    endTime: string;
+    color: string;
+    calendarName: string;
+  }>;
+}
+
 export interface OrbitWsEvent {
   type:
     | 'announcement.created'
@@ -186,7 +284,10 @@ export interface OrbitWsEvent {
     | 'notification.created'
     | 'notification.updated'
     | 'miniapp.realtime'
-    | 'hub.presence.updated';
+    | 'hub.presence.updated'
+    | 'studio_calendar.created'
+    | 'studio_calendar.updated'
+    | 'studio_calendar.deleted';
   payload: Record<string, unknown>;
 }
 
@@ -521,6 +622,76 @@ export const orbitServerApi = {
       { params: { limit } },
     );
     return data.items ?? [];
+  },
+
+  async listStudioCalendarEvents(range?: {
+    from?: string;
+    to?: string;
+  }): Promise<StudioCalendarEventDTO[]> {
+    const { data } = await client.get<{ items: StudioCalendarEventDTO[] }>(
+      '/api/v1/studio-calendar/events',
+      { params: range },
+    );
+    return data.items ?? [];
+  },
+
+  async createStudioCalendarEvent(
+    input: StudioCalendarEventPayload,
+  ): Promise<StudioCalendarEventDTO> {
+    const { data } = await client.post<StudioCalendarEventDTO>(
+      '/api/v1/studio-calendar/events',
+      input,
+    );
+    return data;
+  },
+
+  async updateStudioCalendarEvent(
+    id: string,
+    input: Partial<StudioCalendarEventPayload>,
+  ): Promise<StudioCalendarEventDTO> {
+    const { data } = await client.patch<StudioCalendarEventDTO>(
+      `/api/v1/studio-calendar/events/${encodeURIComponent(id)}`,
+      input,
+    );
+    return data;
+  },
+
+  async deleteStudioCalendarEvent(id: string): Promise<void> {
+    await client.delete(`/api/v1/studio-calendar/events/${encodeURIComponent(id)}`);
+  },
+
+  async rsvpStudioCalendarEvent(
+    id: string,
+    status: StudioAttendeeResponse,
+  ): Promise<StudioCalendarEventDTO> {
+    const { data } = await client.post<StudioCalendarEventDTO>(
+      `/api/v1/studio-calendar/events/${encodeURIComponent(id)}/rsvp`,
+      { status },
+    );
+    return data;
+  },
+
+  async upsertFreeBusySnapshot(
+    payload: FreeBusySnapshotPayload,
+  ): Promise<{ ok: true; updatedAt: string }> {
+    const { data } = await client.put<{ ok: true; updatedAt: string }>(
+      '/api/v1/studio-calendar/freebusy/snapshot',
+      payload,
+    );
+    return data;
+  },
+
+  async queryFreeBusy(input: {
+    date: string;
+    userIds?: string[];
+    grades?: number[];
+    excludeEventId?: string;
+  }): Promise<{ date: string; members: MemberFreeBusyTimelineDTO[] }> {
+    const { data } = await client.post<{
+      date: string;
+      members: MemberFreeBusyTimelineDTO[];
+    }>('/api/v1/studio-calendar/freebusy/query', input);
+    return data;
   },
 };
 

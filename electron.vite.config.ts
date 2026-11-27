@@ -7,7 +7,7 @@ const blogApiBase = JSON.stringify(process.env.VITE_BLOG_API_BASE || process.env
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ['zod'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['zod', 'ical.js'] })],
     define: { __BLOG_API_BASE__: blogApiBase },
     build: {
       rollupOptions: {

@@ -348,14 +348,17 @@ export function PunchTodayPage(): JSX.Element {
             </Button>
             {auth.authenticated &&
               networkStatus?.wifiFingerprintEnabled &&
-              !networkStatus.allowed && (
-                <span className={styles.envHint}>
-                  {networkStatus.scanError ||
-                    networkStatus.reason ||
-                    '请确认在工作室内并开启 Wi-Fi 开关（无需连接热点）'}
-                  {networkStatus.scanPermissionDenied && (
-                    <>
-                      {' '}
+              !networkStatus.allowed && (() => {
+                const hintText =
+                  networkStatus.scanError ||
+                  networkStatus.reason ||
+                  '请确认在工作室内并开启 Wi-Fi 开关（无需连接热点）';
+                return (
+                  <div className={styles.envHint}>
+                    <span className={styles.envHintText} title={hintText}>
+                      {hintText}
+                    </span>
+                    {networkStatus.scanPermissionDenied && (
                       <Button
                         variant="glass"
                         size="small"
@@ -363,10 +366,10 @@ export function PunchTodayPage(): JSX.Element {
                       >
                         打开系统定位设置
                       </Button>
-                    </>
-                  )}
-                </span>
-              )}
+                    )}
+                  </div>
+                );
+              })()}
           </div>
         </Card>
 
