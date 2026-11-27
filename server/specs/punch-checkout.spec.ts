@@ -182,4 +182,41 @@ describe('PunchAttendanceService 异地安全签退与心跳计费截断', () =>
     expect(res.remoteCheckOut).toBe(false);
     expect(res.durationSeconds).toBeGreaterThanOrEqual(59 * 60);
   });
+
+  it('未传 clientIp 导致缺少环境评估结果时，不推进 lastCreditedAt', async () => {
+    const now = Date.now();
+    const checkInAt = new Date(now - 40 * 60_000);
+    const oldCredited = new Date(now - 15 * 60_000);
+    const allowedRef = { value: true };
+
+    const { service, getStored } = createFixture(
+      {
+        id: 'sess_3',
+        teamId: 'team_lec',
+        userId: 'u_zeng',
+        checkInAt,
+        checkOutAt: null,
+        lastKeepaliveAt: oldCredited,
+        lastCreditedAt: oldCredited,
+        creditedSeconds: 0,
+        pausedAt: null,
+        pauseReason: null,
+        segmentsCount: 0,
+        durationSeconds: null,
+        status: 'active',
+        invalidReason: null,
+        sourceIpAtCheckIn: '10.0.0.1',
+        sourceIpAtCheckOut: null,
+        weekKey: '2026-11-23',
+        weeklyGoalSecondsSnapshot: 18 * 3600,
+        isMarked: false,
+        createdAt: checkInAt,
+        updatedAt: oldCredited,
+      },
+      allowedRef,
+    );
+
+    await service.keepAlive(user, undefined, []);
+    expect(getStored()?.lastCreditedAt?.getTime()).toBe(oldCredited.getTime());
+  });
 });

@@ -285,8 +285,8 @@ export class PunchAttendanceService {
         : undefined;
 
     session.lastKeepaliveAt = now;
-    // 仅在确认仍处于工作室环境内时推进 lastCreditedAt，供离场后远程签退时精准截断有效时长
-    if (!environment || environment.isAllowed) {
+    // 仅在明确确认处于工作室环境内时推进 lastCreditedAt，防止离场或环境缺失时误计有效时长
+    if (environment?.isAllowed) {
       session.lastCreditedAt = now;
     }
     session.updatedAt = now;

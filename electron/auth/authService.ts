@@ -302,9 +302,10 @@ export class AuthService {
         const error = reqUrl.searchParams.get('error');
         const state = reqUrl.searchParams.get('state');
         const code = reqUrl.searchParams.get('code');
+        const ok = !error && state === expectedState && Boolean(code);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(
-          `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Orbit 登录</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f5f7fb;color:#0f172a}.card{background:#fff;border:1px solid rgba(15,23,42,.08);border-radius:18px;padding:28px 34px;box-shadow:0 16px 40px rgba(15,23,42,.08);text-align:center;max-width:360px}h2{margin:0 0 8px;font-size:18px}p{margin:0;font-size:13px;color:#475569;line-height:1.6}</style></head><body><div class="card"><h2>${error ? '授权未完成' : 'Orbit 登录已授权'}</h2><p>${error ? '请返回 Orbit 客户端重试。' : '认证已完成，正在自动返回 Orbit 桌面端，可关闭此标签页。'}</p></div></body></html>`,
+          `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Orbit 登录</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f5f7fb;color:#0f172a}.card{background:#fff;border:1px solid rgba(15,23,42,.08);border-radius:18px;padding:28px 34px;box-shadow:0 16px 40px rgba(15,23,42,.08);text-align:center;max-width:360px}h2{margin:0 0 8px;font-size:18px}p{margin:0;font-size:13px;color:#475569;line-height:1.6}</style></head><body><div class="card"><h2>${ok ? 'Orbit 登录已授权' : '授权未完成'}</h2><p>${ok ? '认证已完成，正在自动返回 Orbit 桌面端，可关闭此标签页。' : '授权校验未通过或已取消，请返回 Orbit 客户端重试。'}</p></div></body></html>`,
         );
         if (error) {
           rejectCode(new Error(`LecSSO 返回认证错误：${error}`));
@@ -659,41 +660,47 @@ export class AuthService {
       const verifier = randomBytes(64).toString('base64url');
       const challenge = createHash('sha256').update(verifier).digest('base64url');
       const { server, redirectUri, callbackPromise } = await this.createLoopbackCallback(state);
-
-      const authUrl = new URL(discovery.authorization_endpoint);
-      authUrl.searchParams.set('client_id', cfg.ssoClientId);
-      authUrl.searchParams.set('redirect_uri', redirectUri);
-      authUrl.searchParams.set('response_type', 'code');
-      authUrl.searchParams.set('scope', DEFAULT_SCOPE);
-      authUrl.searchParams.set('resource', cfg.punchApiResource);
-      authUrl.searchParams.set('organization_id', cfg.ssoOrganizationId);
-      authUrl.searchParams.set('code_challenge', challenge);
-      authUrl.searchParams.set('code_challenge_method', 'S256');
-      // 指定社交平台直达或注册页时必须携带 prompt=login，避免浏览器已有旧 LecSSO 会话直接跳过跳转；
-      // 同时保留 consent 确保 oidc-provider 签发 refresh_token。
-      if (options?.provider) {
-        authUrl.searchParams.set('direct_sign_in', `social:${options.provider}`);
-        authUrl.searchParams.set('prompt', 'login consent');
-      } else if (options?.firstScreen === 'register') {
-        authUrl.searchParams.set('first_screen', 'register');
-        authUrl.searchParams.set('prompt', 'login consent');
-      } else {
-        authUrl.searchParams.set('prompt', 'consent');
-      }
-      authUrl.searchParams.set('state', state);
+      // 防止取消或 openExternal 失败后 callbackPromise 延迟 reject 引发 UnhandledPromiseRejection
+      callbackPromise.catch(() => undefined);
 
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-      const cancelPromise = new Promise<never>((_, reject) => {
-        this.pendingExternalCancel = () => reject(new Error('已取消浏览器登录。'));
-        timeoutHandle = setTimeout(
-          () => reject(new Error('浏览器登录已超时（5 分钟），请重新点击登录。')),
-          5 * 60_000,
-        );
-      });
-
-      await shell.openExternal(authUrl.toString());
+      let cancelFn: (() => void) | null = null;
 
       try {
+        const authUrl = new URL(discovery.authorization_endpoint);
+        authUrl.searchParams.set('client_id', cfg.ssoClientId);
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('response_type', 'code');
+        authUrl.searchParams.set('scope', DEFAULT_SCOPE);
+        authUrl.searchParams.set('resource', cfg.punchApiResource);
+        authUrl.searchParams.set('organization_id', cfg.ssoOrganizationId);
+        authUrl.searchParams.set('code_challenge', challenge);
+        authUrl.searchParams.set('code_challenge_method', 'S256');
+        // 指定社交平台直达或注册页时必须携带 prompt=login，避免浏览器已有旧 LecSSO 会话直接跳过跳转；
+        // 同时保留 consent 确保 oidc-provider 签发 refresh_token。
+        if (options?.provider) {
+          authUrl.searchParams.set('direct_sign_in', `social:${options.provider}`);
+          authUrl.searchParams.set('prompt', 'login consent');
+        } else if (options?.firstScreen === 'register') {
+          authUrl.searchParams.set('first_screen', 'register');
+          authUrl.searchParams.set('prompt', 'login consent');
+        } else {
+          authUrl.searchParams.set('prompt', 'consent');
+        }
+        authUrl.searchParams.set('state', state);
+
+        const cancelPromise = new Promise<never>((_, reject) => {
+          cancelFn = () => reject(new Error('已取消浏览器登录。'));
+          this.pendingExternalCancel = cancelFn;
+          timeoutHandle = setTimeout(
+            () => reject(new Error('浏览器登录已超时（5 分钟），请重新点击登录。')),
+            5 * 60_000,
+          );
+        });
+        cancelPromise.catch(() => undefined);
+
+        await shell.openExternal(authUrl.toString());
+
         const code = await Promise.race([callbackPromise, cancelPromise]);
         await this.exchangeCodeAndPersist(code, redirectUri, verifier);
         const auth = this.getState();
@@ -706,7 +713,10 @@ export class AuthService {
         return { status: 'authenticated', auth };
       } finally {
         if (timeoutHandle) clearTimeout(timeoutHandle);
-        this.pendingExternalCancel = null;
+        // 仅清理属于本次调用的取消句柄，避免并发切换新登录方式时误清后者
+        if (cancelFn && this.pendingExternalCancel === cancelFn) {
+          this.pendingExternalCancel = null;
+        }
         server.close();
       }
     } catch (err) {

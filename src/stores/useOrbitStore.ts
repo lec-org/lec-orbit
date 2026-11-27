@@ -167,6 +167,7 @@ interface OrbitStoreState {
   sendAttendanceHeartbeat: () => Promise<void>;
   applyOrbitWsEvent: (event: OrbitWsEvent) => void;
   toggleCheckInOut: () => Promise<{ ok: boolean; message: string; status?: number }>;
+  checkOut: () => Promise<{ ok: boolean; message: string; skipped?: boolean; status?: number }>;
   equipTitle: (titleId: string | null) => Promise<void>;
   ackNotification: (id: string) => Promise<void>;
 }
@@ -756,17 +757,17 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     }
   },
 
-  toggleCheckInOut: async () => {
-    const { attendance, networkStatus } = get();
-    const isCheckedIn = Boolean(attendance?.isCheckedIn);
-    if (!isCheckedIn && networkStatus && !networkStatus.allowed && !networkStatus.wifiFingerprintEnabled) {
+  checkOut: async () => {
+    const { attendance } = get();
+    if (!attendance?.isCheckedIn) {
       return {
-        ok: false,
-        message: networkStatus.reason || '当前网络不在工作室允许签到的白名单范围内。',
+        ok: true,
+        skipped: true,
+        message: '当前已签退，无需重复操作。',
       };
     }
     try {
-      const updated = isCheckedIn ? await punchApi.checkOut() : await punchApi.checkIn();
+      const updated = await punchApi.checkOut();
       consecutiveEnvMisses = 0;
       lastEnvLeaveNotifiedAt = 0;
       envLeaveNotifiedCount = 0;
@@ -777,15 +778,48 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
         remoteCheckOut?: boolean;
         checkOutNotice?: string;
       };
-      const remoteNotice =
-        isCheckedIn && remoteMeta.remoteCheckOut
-          ? remoteMeta.checkOutNotice || '已远程签退，本次专注时长已按最后一次在工作室内的时间结算。'
-          : null;
+      const remoteNotice = remoteMeta.remoteCheckOut
+        ? remoteMeta.checkOutNotice || '已远程签退，本次专注时长已按最后一次在工作室内的时间结算。'
+        : null;
       return {
         ok: true,
-        message: isCheckedIn
-          ? (remoteNotice ?? '已签退，本次专注时长已记录。')
-          : '签到成功，开始今日专注！',
+        message: remoteNotice ?? '已签退，本次专注时长已记录。',
+      };
+    } catch (err) {
+      if (err instanceof PunchApiError && err.status === 403) {
+        void get().refreshNetworkStatus(false);
+      }
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : '签退失败，请检查网络连接与登录状态。',
+        status: err instanceof PunchApiError ? err.status : undefined,
+      };
+    }
+  },
+
+  toggleCheckInOut: async () => {
+    const { attendance, networkStatus } = get();
+    const isCheckedIn = Boolean(attendance?.isCheckedIn);
+    if (isCheckedIn) {
+      return get().checkOut();
+    }
+    if (networkStatus && !networkStatus.allowed && !networkStatus.wifiFingerprintEnabled) {
+      return {
+        ok: false,
+        message: networkStatus.reason || '当前网络不在工作室允许签到的白名单范围内。',
+      };
+    }
+    try {
+      const updated = await punchApi.checkIn();
+      consecutiveEnvMisses = 0;
+      lastEnvLeaveNotifiedAt = 0;
+      envLeaveNotifiedCount = 0;
+      set({ attendance: updated });
+      void getOrbitClient().storage.setCache('punch:attendance', updated);
+      void get().refreshPunchData();
+      return {
+        ok: true,
+        message: '签到成功，开始今日专注！',
       };
     } catch (err) {
       if (err instanceof PunchApiError && err.status === 403) {
@@ -911,7 +945,23 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
               action: {
                 label: '立即签退',
                 onClick: () => {
-                  void get().toggleCheckInOut().then((result) => {
+                  if (!get().attendance?.isCheckedIn) {
+                    notifyToast({
+                      tone: 'info',
+                      title: '当前已签退',
+                      description: '无需重复签退。',
+                    });
+                    return;
+                  }
+                  void get().checkOut().then((result) => {
+                    if (result.skipped) {
+                      notifyToast({
+                        tone: 'info',
+                        title: '当前已签退',
+                        description: result.message,
+                      });
+                      return;
+                    }
                     notifyToast({
                       tone: result.ok ? 'success' : 'error',
                       title: result.ok ? '签退成功' : '签退失败',

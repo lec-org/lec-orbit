@@ -1,5 +1,5 @@
 /** Orbit 登录弹窗：原生账号密码登录，内置 MFA 两步验证，以及 GitHub / 飞书 / 注册外部默认浏览器直达登录。 */
-import { useEffect, useState, type FormEvent, type JSX } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import { Button, Dialog, Input, Message } from '@lec-space/liquidglass';
 import { User } from '@lec-space/icons';
 import { X } from 'lucide-react';
@@ -34,6 +34,8 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
   const [submitting, setSubmitting] = useState(false);
   const [waitingTarget, setWaitingTarget] = useState<ExternalSignInTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 递增外部登录请求序号，防止取消后快速切换平台时旧请求返回误清当前等待态。 */
+  const externalRequestIdRef = useRef(0);
 
   const waitingBrowser = waitingTarget !== null;
 
@@ -42,7 +44,9 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
       setHandle(lastLoginHandle);
     }
     if (!open && waitingBrowser) {
+      externalRequestIdRef.current += 1;
       setWaitingTarget(null);
+      setSubmitting(false);
       void getOrbitClient().auth.cancelExternalSignIn();
     }
   }, [open, handle, lastLoginHandle, waitingBrowser]);
@@ -106,12 +110,16 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
   };
 
   const handleExternalSignIn = async (target: ExternalSignInTarget) => {
+    const requestId = ++externalRequestIdRef.current;
     setWaitingTarget(target);
     setSubmitting(true);
     setError(null);
     const options =
       target === 'register' ? { firstScreen: 'register' as const } : { provider: target };
     const res = await getOrbitClient().auth.signInWithEmbeddedWindow(options);
+    if (externalRequestIdRef.current !== requestId) {
+      return;
+    }
     setWaitingTarget(null);
     setSubmitting(false);
     if (res.status === 'authenticated') {
@@ -130,6 +138,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
   };
 
   const handleCancelBrowserSignIn = () => {
+    externalRequestIdRef.current += 1;
     setWaitingTarget(null);
     setSubmitting(false);
     void getOrbitClient().auth.cancelExternalSignIn();
