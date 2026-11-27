@@ -20,15 +20,19 @@ import {
   Settings,
   Users,
 } from '@lec-space/icons';
-import { Compass, Gamepad2, Sparkles, X } from 'lucide-react';
+import { Compass, Gamepad2, GraduationCap, Sparkles, X } from 'lucide-react';
 import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
 import { evaluateFocusReminder } from '@shared/reminders';
+import { evaluateCalendarReminder } from '@shared/calendar';
+import { evaluateClassReminder } from '@shared/schedule';
 import { compareOrbitSemver } from '@shared/updateChangelog';
 import { UpdateChangelogDialog } from '@/components/UpdateChangelogDialog';
 import { getOrbitClient } from '@/services/orbitClient';
 import { connectOrbitWebSocket } from '@/services/orbitServerApi';
 import { notifyToast, registerOrbitToast } from '@/services/orbitToast';
+import { useCalendarStore } from '@/stores/useCalendarStore';
 import { useOrbitStore, type OrbitNavTab } from '@/stores/useOrbitStore';
+import { useScheduleStore } from '@/stores/useScheduleStore';
 import { ApprovePage } from '@/pages/approve';
 import { BlogHubPage } from '@/pages/blog-hub';
 import { DocWorkspacePage } from '@/pages/doc-workspace';
@@ -43,6 +47,7 @@ import { PunchCardsPage } from '@/pages/punch-cards';
 import { PunchGrowthPage } from '@/pages/punch-growth';
 import { PunchStudioPage } from '@/pages/punch-studio';
 import { PunchTodayPage } from '@/pages/punch-today';
+import { SchedulePage } from '@/pages/schedule';
 import { SettingsPage } from '@/pages/settings';
 import styles from './App.module.css';
 
@@ -142,6 +147,9 @@ export function App(): JSX.Element {
       });
     });
     const offBlog = orbit.blog.onStateChanged(setBlogState);
+    const offScheduleImport = orbit.schedule.onImportStateChanged((importState) => {
+      useScheduleStore.getState().setImportState(importState);
+    });
     const offUpdate = orbit.system.onUpdateStateChanged((info) => {
       setUpdateInfo(info);
       // 后台静默下载就绪时发出一次温和提示（不突兀弹窗，左下角卡片同步常驻「重启以更新」）
@@ -208,6 +216,7 @@ export function App(): JSX.Element {
       offHubRuntime();
       offHubToast();
       offBlog();
+      offScheduleImport();
       offUpdate();
       offQuickPunch();
     };
@@ -386,6 +395,108 @@ export function App(): JSX.Element {
     };
   }, [isAuxiliaryWindow, auth.authenticated, config.remindersEnabled, setActiveTab]);
 
+  // 课前提醒心跳：独立于打卡状态运行，只要当前激活课表开启了上课提醒即按分钟评估
+  useEffect(() => {
+    if (isAuxiliaryWindow) return;
+    const CLASS_REMINDER_KEY = 'orbit:sent-class-reminders:v1';
+    const readSent = (): Set<string> => {
+      try {
+        const raw = window.localStorage.getItem(CLASS_REMINDER_KEY);
+        const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+        return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+      } catch {
+        return new Set();
+      }
+    };
+    const saveSent = (key: string) => {
+      try {
+        const next = [...readSent(), key].slice(-120);
+        window.localStorage.setItem(CLASS_REMINDER_KEY, JSON.stringify(next));
+      } catch {
+        // 忽略本地存储异常
+      }
+    };
+
+    const tickClassReminder = async () => {
+      let detail = useScheduleStore.getState().activeDetail;
+      if (!detail && !useScheduleStore.getState().loaded) {
+        await useScheduleStore.getState().loadAll();
+        detail = useScheduleStore.getState().activeDetail;
+      }
+      if (!useCalendarStore.getState().loaded) {
+        await useCalendarStore.getState().loadSnapshot();
+      }
+      const nowDate = new Date();
+      const sent = readSent();
+
+      // 将已开启订阅日历中的法定放假日（badge === 'off'）自动并入课表休假日以跳过提醒
+      const calSnap = useCalendarStore.getState();
+      const visibleSubIds = new Set(
+        calSnap.subscriptions.filter((s) => s.visible).map((s) => s.id),
+      );
+      const subOffDates = calSnap.subscriptionItems
+        .filter((item) => item.badge === 'off' && visibleSubIds.has(item.subscriptionId))
+        .map((item) => item.startDate);
+      const effectiveDetail =
+        detail && subOffDates.length > 0
+          ? {
+              ...detail,
+              schedule: {
+                ...detail.schedule,
+                holidays: Array.from(new Set([...detail.schedule.holidays, ...subOffDates])),
+              },
+            }
+          : detail;
+
+      const classNotice = evaluateClassReminder({
+        now: nowDate,
+        detail: effectiveDetail,
+        sentKeys: sent,
+      });
+      if (classNotice) {
+        saveSent(classNotice.key);
+        void getOrbitClient().system.notify(classNotice.title, classNotice.body);
+        notifyToast({
+          tone: 'info',
+          title: classNotice.title,
+          description: classNotice.body,
+          action: { label: '查看日程课表', onClick: () => setActiveTab('schedule') },
+        });
+      }
+
+      const calState = useCalendarStore.getState();
+      const calNotice = evaluateCalendarReminder({
+        now: nowDate,
+        events: [...calState.events, ...calState.studioEvents],
+        tasks: calState.tasks,
+        sentKeys: readSent(),
+      });
+      if (calNotice) {
+        saveSent(calNotice.key);
+        void getOrbitClient().system.notify(calNotice.title, calNotice.body);
+        notifyToast({
+          tone: 'info',
+          title: calNotice.title,
+          description: calNotice.body,
+          action: { label: '查看日程课表', onClick: () => setActiveTab('schedule') },
+        });
+      }
+    };
+
+    // 切换账号或登录态变化时刷新当前 scope 的课表与日程
+    void Promise.all([
+      useScheduleStore.getState().loadAll(),
+      useCalendarStore.getState().loadSnapshot(),
+    ]);
+
+    const first = window.setTimeout(() => void tickClassReminder(), 8_000);
+    const timer = window.setInterval(() => void tickClassReminder(), 60_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [isAuxiliaryWindow, auth.profile?.subject, setActiveTab]);
+
   useEffect(() => {
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (!mq) return;
@@ -417,6 +528,7 @@ export function App(): JSX.Element {
   const navItems: NavItem[] = useMemo(
     () => [
       { id: 'punch-today', label: '今日专注', icon: <Clock3 size={17} /> },
+      { id: 'schedule', label: '日程课表', icon: <GraduationCap size={17} /> },
       { id: 'punch-growth', label: '成长记录', icon: <CalendarDays size={17} /> },
       { id: 'punch-cards', label: '卡牌工坊', icon: <Sparkles size={17} /> },
       { id: 'punch-studio', label: '工作室', icon: <Users size={17} /> },
@@ -691,6 +803,7 @@ export function App(): JSX.Element {
               ) : (
                 <>
                   {activeTab === 'punch-today' && <PunchTodayPage />}
+                  {activeTab === 'schedule' && <SchedulePage />}
                   {activeTab === 'punch-growth' && <PunchGrowthPage />}
                   {activeTab === 'punch-cards' && <PunchCardsPage />}
                   {activeTab === 'punch-studio' && <PunchStudioPage />}

@@ -27,6 +27,22 @@ import type {
   UpdateCheckResult,
   WifiScanOptions,
 } from '../src/shared/ipc';
+import type {
+  ImportIcsFileInput,
+  SaveCalendarCategoryInput,
+  SaveCalendarSubscriptionInput,
+  UpsertCalendarEventInput,
+  UpsertCalendarTaskInput,
+} from '../src/shared/calendar';
+import type {
+  ApplySwpuImportInput,
+  CreateScheduleInput,
+  SaveTimetableInput,
+  SwpuImportWindowState,
+  SwpuNetworkMode,
+  UpdateScheduleInput,
+  UpsertCourseInput,
+} from '../src/shared/schedule';
 
 const bridge: OrbitBridge = {
   platform: process.platform,
@@ -217,6 +233,73 @@ const bridge: OrbitBridge = {
       return () => ipcRenderer.removeListener('orbit:hub:toastRequested', wrapped);
     },
     dispatchRealtimeEvent: (payload) => ipcRenderer.invoke('orbit:hub:dispatchRealtime', payload),
+  },
+  schedule: {
+    listSchedules: () => ipcRenderer.invoke('orbit:schedule:listSchedules'),
+    getDetail: (scheduleId?: string) => ipcRenderer.invoke('orbit:schedule:getDetail', scheduleId),
+    createSchedule: (input: CreateScheduleInput) =>
+      ipcRenderer.invoke('orbit:schedule:createSchedule', input),
+    updateSchedule: (input: UpdateScheduleInput) =>
+      ipcRenderer.invoke('orbit:schedule:updateSchedule', input),
+    setActiveSchedule: (scheduleId: string) =>
+      ipcRenderer.invoke('orbit:schedule:setActiveSchedule', scheduleId),
+    deleteSchedule: (scheduleId: string) =>
+      ipcRenderer.invoke('orbit:schedule:deleteSchedule', scheduleId),
+    clearCourses: (scheduleId: string) =>
+      ipcRenderer.invoke('orbit:schedule:clearCourses', scheduleId),
+    upsertCourse: (input: UpsertCourseInput) =>
+      ipcRenderer.invoke('orbit:schedule:upsertCourse', input),
+    deleteCourses: (scheduleId: string, courseIds: string[]) =>
+      ipcRenderer.invoke('orbit:schedule:deleteCourses', { scheduleId, courseIds }),
+    listTimetables: () => ipcRenderer.invoke('orbit:schedule:listTimetables'),
+    saveTimetable: (input: SaveTimetableInput) =>
+      ipcRenderer.invoke('orbit:schedule:saveTimetable', input),
+    getImportState: () => ipcRenderer.invoke('orbit:schedule:getImportState'),
+    openSwpuImport: (options?: { networkMode?: SwpuNetworkMode; clearSession?: boolean }) =>
+      ipcRenderer.invoke('orbit:schedule:openSwpuImport', options ?? {}),
+    fetchSwpuSchedule: (termCode?: string) =>
+      ipcRenderer.invoke('orbit:schedule:fetchSwpuSchedule', termCode),
+    closeSwpuImport: () => ipcRenderer.invoke('orbit:schedule:closeSwpuImport'),
+    applySwpuImport: (input: ApplySwpuImportInput) =>
+      ipcRenderer.invoke('orbit:schedule:applySwpuImport', input),
+    exportIcs: (scheduleId: string) => ipcRenderer.invoke('orbit:schedule:exportIcs', scheduleId),
+    exportShareJson: (scheduleId: string) =>
+      ipcRenderer.invoke('orbit:schedule:exportShareJson', scheduleId),
+    importShareJson: (rawJson: string) =>
+      ipcRenderer.invoke('orbit:schedule:importShareJson', rawJson),
+    onImportStateChanged: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, state: SwpuImportWindowState) =>
+        listener(state);
+      ipcRenderer.on('orbit:schedule:importStateChanged', wrapped);
+      return () => ipcRenderer.removeListener('orbit:schedule:importStateChanged', wrapped);
+    },
+  },
+  calendar: {
+    getSnapshot: () => ipcRenderer.invoke('orbit:calendar:getSnapshot'),
+    saveCategory: (input: SaveCalendarCategoryInput) =>
+      ipcRenderer.invoke('orbit:calendar:saveCategory', input),
+    setCategoryVisible: (categoryId: string, visible: boolean) =>
+      ipcRenderer.invoke('orbit:calendar:setCategoryVisible', { categoryId, visible }),
+    deleteCategory: (categoryId: string) =>
+      ipcRenderer.invoke('orbit:calendar:deleteCategory', categoryId),
+    upsertEvent: (input: UpsertCalendarEventInput) =>
+      ipcRenderer.invoke('orbit:calendar:upsertEvent', input),
+    deleteEvent: (eventId: string) => ipcRenderer.invoke('orbit:calendar:deleteEvent', eventId),
+    upsertTask: (input: UpsertCalendarTaskInput) =>
+      ipcRenderer.invoke('orbit:calendar:upsertTask', input),
+    toggleTask: (taskId: string, completed: boolean) =>
+      ipcRenderer.invoke('orbit:calendar:toggleTask', { taskId, completed }),
+    deleteTask: (taskId: string) => ipcRenderer.invoke('orbit:calendar:deleteTask', taskId),
+    saveSubscription: (input: SaveCalendarSubscriptionInput) =>
+      ipcRenderer.invoke('orbit:calendar:saveSubscription', input),
+    refreshSubscription: (subscriptionId: string) =>
+      ipcRenderer.invoke('orbit:calendar:refreshSubscription', subscriptionId),
+    setSubscriptionVisible: (subscriptionId: string, visible: boolean) =>
+      ipcRenderer.invoke('orbit:calendar:setSubscriptionVisible', { subscriptionId, visible }),
+    deleteSubscription: (subscriptionId: string) =>
+      ipcRenderer.invoke('orbit:calendar:deleteSubscription', subscriptionId),
+    importIcsFile: (input?: ImportIcsFileInput) =>
+      ipcRenderer.invoke('orbit:calendar:importIcsFile', input ?? {}),
   },
 };
 

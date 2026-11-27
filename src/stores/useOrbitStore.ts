@@ -35,6 +35,7 @@ import type {
   TeamWeeklyRankingItem,
 } from '@shared/punch';
 import { getOrbitClient } from '@/services/orbitClient';
+import { useCalendarStore } from '@/stores/useCalendarStore';
 import {
   blogApi,
   BlogApiError,
@@ -54,6 +55,7 @@ import { punchApi, PunchApiError } from '@/services/punchApi';
 
 export type OrbitNavTab =
   | 'punch-today'
+  | 'schedule'
   | 'punch-growth'
   | 'punch-cards'
   | 'punch-studio'
@@ -827,6 +829,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     }
     if (now - lastOrbitSyncAt >= minIntervalMs) {
       void get().refreshOrbitCenter();
+      void useCalendarStore.getState().syncStudioEvents({ silent: true });
     }
   },
 
@@ -1082,6 +1085,13 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
 
   applyOrbitWsEvent: (event) => {
     const mySub = get().auth.profile?.subject;
+    if (
+      useCalendarStore
+        .getState()
+        .applyStudioWsEvent(event, mySub, () => get().setActiveTab('schedule'))
+    ) {
+      return;
+    }
     if (event.type === 'announcement.created') {
       const ann = event.payload as unknown as OrbitAnnouncement;
       const isAuthor = ann.authorId === mySub;

@@ -89,3 +89,58 @@ body,
   right: calc(24px + var(--orbit-sidepanel-offset, 0px));
   transition: right 140ms ease;
 }
+
+/* 全局液态玻璃极简滚动条（注意：Electron/Chromium 下不可混写 scrollbar-width/scrollbar-color，否则会屏蔽 ::-webkit-scrollbar） */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.14);
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+[data-theme="dark"] *::-webkit-scrollbar-thumb {
+  background: rgba(241, 245, 249, 0.16);
+}
+
+[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(241, 245, 249, 0.34);
+}
+
+/* Liquid Glass 下拉菜单浮层：仅纵向滚轮滚动，隐藏视觉滚条以免破坏圆角玻璃边界 */
+.lg-floating.lg-select-list,
+.lg-floating:has(.lg-select-option) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.lg-select-list {
+  min-width: 0;
+}
+
+.lg-select-option {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.lg-floating::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}

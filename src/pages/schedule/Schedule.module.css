@@ -1,0 +1,3336 @@
+/* Orbit 课程表工作台样式：遵循 Apple HIG + Liquid Glass，自动适配明暗主题。 */
+
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 18px 22px 16px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weekHeadline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.weekTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--orbit-text);
+}
+
+.schedulePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  color: var(--orbit-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.schedulePill:hover {
+  background: var(--orbit-surface-strong);
+  border-color: rgba(10, 132, 255, 0.35);
+}
+
+.subDate {
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weekStepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 11px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  backdrop-filter: blur(18px);
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--orbit-text);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.iconBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.todayJumpBtn {
+  border: none;
+  border-radius: 7px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--orbit-accent);
+  cursor: pointer;
+}
+
+.todayJumpBtn:hover {
+  background: rgba(10, 132, 255, 0.2);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 快捷控制面板（对标 WakeUp ... 面板） */
+.quickPanelBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(2px);
+}
+
+.quickPanelInner {
+  width: 376px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px;
+  box-sizing: border-box;
+}
+
+.quickPanel {
+  position: absolute;
+  top: 64px;
+  right: 22px;
+  width: 392px;
+  max-width: calc(100vw - 44px);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+  backdrop-filter: blur(32px) saturate(180%);
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.18);
+}
+
+.panelSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+}
+
+.panelSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panelSectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.panelLinkBtn {
+  border: none;
+  background: transparent;
+  color: var(--orbit-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.panelLinkBtn:hover {
+  background: rgba(10, 132, 255, 0.1);
+}
+
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sliderWrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.sliderValueBadge {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--orbit-accent);
+}
+
+.scheduleCardsRow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.scheduleTile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 78px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  color: var(--orbit-text);
+}
+
+.scheduleTileBox {
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  border: 1px solid var(--orbit-border);
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.2), rgba(100, 116, 139, 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.scheduleTile:hover .scheduleTileBox {
+  transform: translateY(-1px);
+  border-color: rgba(10, 132, 255, 0.4);
+}
+
+.scheduleTileActive .scheduleTileBox {
+  background: linear-gradient(135deg, #2563eb, #6366f1);
+  border-color: transparent;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+}
+
+.scheduleTileName {
+  font-size: 11.5px;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--orbit-text);
+}
+
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.toolTile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  color: var(--orbit-text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.toolTile:hover {
+  background: var(--orbit-surface-strong);
+  border-color: rgba(10, 132, 255, 0.35);
+}
+
+.toolTileActive {
+  border-color: rgba(10, 132, 255, 0.45);
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--orbit-accent);
+}
+
+/* 周视图网格主体 */
+.boardCard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  backdrop-filter: blur(24px) saturate(160%);
+  overflow: hidden;
+}
+
+.dayHeaderRow {
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+  padding-inline-end: 6px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.monthCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orbit-text-muted);
+  border-right: 1px solid var(--orbit-border);
+}
+
+.dayHeaderCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  padding: 8px 4px 6px;
+  min-width: 0;
+  border-right: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.scheduleHeaderPills {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.scheduleHeaderPill {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 21px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  border-left: 3px solid var(--pill-color, #f59e0b);
+  background: color-mix(in srgb, var(--pill-color, #f59e0b) 15%, transparent);
+  color: color-mix(in srgb, var(--pill-color, #f59e0b) 82%, var(--orbit-text));
+  font-size: 11.5px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.scheduleHeaderPill:hover {
+  filter: brightness(0.95);
+}
+
+.scheduleHeaderPill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dayHeaderCell:last-child {
+  border-right: none;
+}
+
+.dayHeaderLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+}
+
+.dayHeaderDate {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.dayHeaderToday .dayHeaderLabel {
+  color: var(--orbit-accent);
+}
+
+.dayHeaderToday .dayHeaderDate {
+  background: var(--orbit-text);
+  color: var(--orbit-surface-strong);
+}
+
+.holidayDot {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--orbit-warning);
+}
+
+.workdayDot {
+  font-size: 10px;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.gridScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+.gridBody {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+}
+
+.timeAxisCol {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--orbit-border);
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.timeSlotCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 2px;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.14);
+  user-select: none;
+}
+
+.sectionNumber {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orbit-text);
+  line-height: 1.1;
+}
+
+.sectionClock {
+  font-size: 10px;
+  font-family: var(--orbit-mono);
+  color: var(--orbit-text-muted);
+  line-height: 1.15;
+}
+
+.dayCol {
+  position: relative;
+  border-right: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.dayCol:last-child {
+  border-right: none;
+}
+
+.dayColToday {
+  background: rgba(10, 132, 255, 0.035);
+}
+
+/* 节次课表当前时间指示线（与周/日视图红点红线视觉语言一致） */
+.scheduleNowLine {
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  background: var(--lg-destructive, #ff3b30);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.scheduleNowLine::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--lg-destructive, #ff3b30);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.gridRowCell {
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.14);
+  transition: background 100ms ease;
+}
+
+.gridRowCell:hover {
+  background: rgba(10, 132, 255, 0.05);
+}
+
+.compactGrid .gridRowCell {
+  border-bottom-color: transparent;
+}
+
+.courseCard {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 11px;
+  padding: 6px 7px;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  box-shadow: 0 0 0 1.5px var(--lg-sheet-opaque, #ffffff), 0 4px 12px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+  z-index: 2;
+}
+
+.courseCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1.5px var(--lg-sheet-opaque, #ffffff), 0 8px 18px rgba(15, 23, 42, 0.18);
+  filter: brightness(1.04);
+  z-index: 20 !important;
+}
+
+.courseCardName {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.courseCardMeta {
+  font-size: 11px;
+  line-height: 1.2;
+  opacity: 0.92;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.courseCardTeacher {
+  font-size: 10.5px;
+  opacity: 0.84;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 空状态引导 */
+.emptyState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 36px;
+  text-align: center;
+}
+
+.emptyIconWrap {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--orbit-accent);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--orbit-text);
+}
+
+.emptyDesc {
+  margin: 0;
+  max-width: 440px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--orbit-text-muted);
+}
+
+.emptyActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* 弹窗内部表单通用布局：内容区独立纵向滚动，底栏操作按钮固定贴底 */
+.dialogContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-height: min(78vh, 680px);
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 6px 8px 4px;
+}
+
+.dialogFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--orbit-border);
+  flex-shrink: 0;
+}
+
+.dialogFooterRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.fieldRowTitle {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.fieldRowTriple {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 0.9fr) minmax(0, 1.3fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field :global(.lg-input),
+.field :global(.lg-select),
+.field :global(.lg-textarea),
+.field :global(.lg-textarea-wrap),
+.field :global(.lg-textarea-field),
+.field :global(.lg-date-picker),
+.field :global(.lg-date-range-control),
+.field :global(.lg-date-range-trigger),
+.field :global(.lg-date-field-wrap),
+.field :global(.lg-time-field),
+.field :global(input) {
+  min-width: 0 !important;
+  max-width: 100%;
+  width: 100%;
+}
+
+.sectionRangeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sectionRangeDash {
+  color: var(--orbit-text-muted);
+  font-weight: 600;
+  user-select: none;
+}
+
+.stepperValue {
+  min-width: 56px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+}
+
+.settingMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settingTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.settingDesc {
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+}
+
+/* 色板 */
+.colorPalette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.colorSwatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.colorSwatch:hover {
+  transform: scale(1.1);
+}
+
+.colorSwatchActive {
+  border-color: var(--orbit-text);
+  transform: scale(1.12);
+}
+
+/* 时间段卡片 & 预览列表 */
+.meetingCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+}
+
+.meetingCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.previewList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.previewItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+}
+
+.previewItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.colorDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.previewItemTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewItemSub {
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+}
+
+.slotList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slotRow {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 16px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.slotLabel {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.slotDash {
+  text-align: center;
+  color: var(--orbit-text-muted);
+}
+
+.holidayChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.holidayChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--orbit-warning);
+  border: 1px solid rgba(217, 119, 6, 0.22);
+}
+
+.holidayChipRemove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+}
+
+.courseDirItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.courseDirItem:hover {
+  background: var(--orbit-surface-strong);
+  border-color: rgba(10, 132, 255, 0.3);
+}
+
+.inlineRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.hintText {
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+  line-height: 1.5;
+}
+
+/* ── 统一日历两栏框架（对齐飞书桌面日历结构） ── */
+
+.workspaceShell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calSidebar {
+  width: 232px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 12px 14px;
+  border-right: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  backdrop-filter: blur(22px);
+  overflow: hidden;
+}
+
+.calMainPane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 14px;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* 迷你月历 */
+.miniCalCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+}
+
+.miniCalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.miniCalMonth {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orbit-text);
+}
+
+.miniCalArrows {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.miniArrowBtn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.miniArrowBtn:hover {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--orbit-text);
+}
+
+.miniWeekRow,
+.miniDaysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+}
+
+.miniWeekLabel {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+  padding: 2px 0;
+}
+
+.miniDayCell {
+  position: relative;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--orbit-text);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 100ms ease;
+}
+
+.miniDayCell:hover {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.miniDayMuted {
+  color: var(--orbit-text-muted);
+  opacity: 0.45;
+}
+
+.miniDayToday {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 700;
+}
+
+.miniDaySelected {
+  background: rgba(37, 99, 235, 0.16);
+  color: var(--orbit-accent);
+  font-weight: 700;
+}
+
+.miniDayDot {
+  position: absolute;
+  bottom: 2px;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 999px;
+  background: var(--orbit-accent);
+}
+
+.miniDayToday .miniDayDot {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.sidebarSearchWrap {
+  min-width: 0;
+}
+
+.sidebarSearchWrap :global(.lg-input) {
+  min-width: 0 !important;
+  width: 100%;
+}
+
+/* 图层列表（飞书风彩色勾选框） */
+.layerScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 2px;
+}
+
+.layerGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layerGroupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 4px;
+}
+
+.layerGroupTitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--orbit-text-muted);
+}
+
+.layerHeadAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  color: var(--orbit-accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 6px;
+}
+
+.layerHeadAction:hover {
+  background: rgba(10, 132, 255, 0.1);
+}
+
+.layerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 9px;
+  transition: background 100ms ease;
+}
+
+.layerRow:hover {
+  background: rgba(148, 163, 184, 0.11);
+}
+
+.layerSubRow {
+  padding: 3px 6px 3px 22px;
+}
+
+.layerCheckBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.colorCheckbox {
+  width: 15px;
+  height: 15px;
+  border-radius: 4.5px;
+  border: 1.5px solid;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+
+.layerLabel {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layerSubLabel {
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+}
+
+.layerCountBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+
+.layerDeleteBtn {
+  border: none;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.layerRow:hover .layerDeleteBtn {
+  opacity: 1;
+}
+
+.layerDeleteBtn:hover {
+  color: var(--orbit-danger);
+}
+
+/* 顶部统一栏 */
+.calTopBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.calTopLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.calMainTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--orbit-text);
+  white-space: nowrap;
+}
+
+.calTopRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── 月视图（对齐飞书日历清爽大格） ── */
+.monthViewWrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.monthHeaderRow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+  flex-shrink: 0;
+}
+
+.monthHeaderCell {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+}
+
+.monthHeaderToday {
+  color: #2563eb;
+}
+
+.monthGrid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.monthCellBox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 6px 5px;
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: background 100ms ease;
+}
+
+.monthCellBox:nth-child(7n) {
+  border-right: none;
+}
+
+.monthCellBox:hover {
+  background: rgba(148, 163, 184, 0.055);
+}
+
+.monthCellOutside {
+  opacity: 0.48;
+}
+
+.monthCellToday {
+  background: rgba(37, 99, 235, 0.055);
+}
+
+.monthCellSelected {
+  box-shadow: inset 0 0 0 1.5px rgba(37, 99, 235, 0.35);
+}
+
+.monthCellTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.monthDayBadge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.monthDayBadgeToday {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.monthCellBadges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.monthWeekTag {
+  font-size: 10.5px;
+  color: var(--orbit-text-muted);
+  font-weight: 500;
+}
+
+.monthHolidayTag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--orbit-warning);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.monthCellItems {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.monthAllDayPill {
+  width: 100%;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.monthLineItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 1.5px 4px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--orbit-text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.monthLineItem:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.monthItemDone {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.monthItemDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.monthItemTime {
+  font-family: var(--orbit-mono);
+  font-size: 10.5px;
+  color: var(--orbit-text-muted);
+  flex-shrink: 0;
+}
+
+.monthItemText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.monthCourseSummaryPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  border: none;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .monthCourseSummaryPill {
+  background: rgba(129, 140, 248, 0.18);
+  color: #a5b4fc;
+}
+
+.monthCourseSummaryPill:hover {
+  background: rgba(99, 102, 241, 0.22);
+}
+
+.monthMoreBtn {
+  border: none;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.monthMoreBtn:hover {
+  color: var(--orbit-accent);
+}
+
+.miniTaskCheck {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  border: 1.5px solid #10b981;
+  background: transparent;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.miniTaskCheckDone {
+  background: #10b981;
+}
+
+.priorityDotHigh {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--orbit-danger);
+  flex-shrink: 0;
+}
+
+/* ── 周连续时间轴视图 & 日聚焦双栏视图 ── */
+.timelineWrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.allDayStripRow {
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--orbit-border);
+  background: rgba(148, 163, 184, 0.04);
+  flex-shrink: 0;
+}
+
+.allDayStripLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+  border-right: 1px solid var(--orbit-border);
+  padding: 4px 2px;
+}
+
+.allDayStripCell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border-right: 1px solid rgba(148, 163, 184, 0.08);
+  min-width: 0;
+  max-height: 82px;
+  overflow-y: auto;
+}
+
+.allDayStripCell:last-child {
+  border-right: none;
+}
+
+.timelineHourAxis {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
+  font-size: 10.5px;
+  font-family: var(--orbit-mono);
+  color: var(--orbit-text-muted);
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.14);
+  user-select: none;
+}
+
+.nowLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #ef4444;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.nowLineDot {
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+}
+
+.timelineCourseCard {
+  position: absolute;
+  border-radius: 9px;
+  padding: 4px 6px;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.timelineEventCard {
+  position: absolute;
+  border-radius: 8px;
+  padding: 4px 7px;
+  border: 1px solid var(--orbit-border);
+  border-left: 3.5px solid #2563eb;
+  background: var(--orbit-surface-strong);
+  color: var(--orbit-text);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.timelineTaskCard {
+  position: absolute;
+  border-radius: 8px;
+  padding: 4px 7px;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-left: 3.5px solid #10b981;
+  background: var(--orbit-surface-strong);
+  color: var(--orbit-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 4;
+}
+
+.timelineCardTitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelineCardSub {
+  font-size: 10.5px;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelineEventTitle {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelineEventSub {
+  font-size: 10.5px;
+  color: var(--orbit-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 日聚焦双栏 */
+.dayFocusLayout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 1fr);
+  overflow: hidden;
+}
+
+.dayFocusTimeline {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--orbit-border);
+}
+
+.dayAllDayBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+}
+
+.daySingleGrid {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.dayTaskPane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  min-height: 0;
+  background: rgba(148, 163, 184, 0.03);
+}
+
+.dayTaskHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quickTaskForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dayTaskScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.taskSubGroupLabel {
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--orbit-text-muted);
+}
+
+/* 课表视图顶部融合的「日程与任务」轻提示条 */
+.scheduleExtraStrip {
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--orbit-border);
+  background: rgba(37, 99, 235, 0.03);
+  flex-shrink: 0;
+}
+
+/* Liquid Glass 官方 ScheduleCalendar 承载容器与双栏联动工作台（左主画布 + 右侧纯 GPU 滑入双栏） */
+.workspaceSplit {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.mainCanvasPane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-right: 0;
+}
+
+.mainCanvasWithRail {
+  padding-right: 300px;
+}
+
+/* 统一主玻璃卡片：日/周/月/节次共享同一个卡片外壳与常驻顶栏，彻底消除切换跳变 */
+.mainBoardCard {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+  box-shadow: var(--orbit-shadow);
+  backdrop-filter: blur(12px);
+  contain: layout style;
+  overflow: hidden;
+}
+
+.unifiedToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 54px;
+  border-bottom: 1px solid var(--orbit-border);
+  flex-shrink: 0;
+}
+
+.unifiedToolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.unifiedToolbarLeft > :global(.lg-tag) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.unifiedNavArrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.unifiedNavBtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--orbit-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.unifiedNavBtn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.unifiedNavBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.unifiedHeading {
+  margin: 0 2px;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--orbit-text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.unifiedToolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mainBoardBody {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dayHeaderClickable {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.dayHeaderClickable:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.dayHeaderSelected {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.scheduleCalendarHost {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scheduleCalendarHost :global(.lg-schedule) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 顶栏由外层 unifiedToolbar 统一常驻承载，隐藏内部重复工具栏消除切换跳变 */
+.scheduleCalendarHost :global(.lg-schedule-toolbar) {
+  display: none;
+}
+
+/* 修复周/日视图纵向滚动条（6px）导致表头、全天行与下方时间轴竖线错位 6px 的问题，并取消 520px 截断白边 */
+.scheduleCalendarHost :global(.lg-schedule-timegrid-header),
+.scheduleCalendarHost :global(.lg-schedule-allday-row) {
+  padding-inline-end: 6px;
+  box-sizing: border-box;
+}
+
+.scheduleCalendarHost :global(.lg-schedule-timegrid-body) {
+  max-height: none;
+  overflow-y: scroll;
+}
+
+/* ── 右侧可折叠双卡片栏（纯 GPU transform + opacity 合成层动画，零逐帧 Layout/Refraction 卡顿） ── */
+.rightRailWrap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 288px;
+  z-index: 6;
+  display: flex;
+  opacity: 1;
+  visibility: visible;
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    visibility 0ms linear 0ms;
+}
+
+.rightRailWrapCollapsed {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate3d(304px, 0, 0);
+  transition:
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 160ms ease,
+    visibility 0ms linear 220ms;
+}
+
+.rightRail {
+  width: 288px;
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.railCard {
+  border-radius: 20px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+  box-shadow: var(--orbit-shadow);
+  backdrop-filter: blur(12px);
+  contain: layout style;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.railMiniTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 6px;
+}
+
+.railMiniMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.railMiniMeta > :global(.lg-tag) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.railCardCaption {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--orbit-text);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.railMiniTerm {
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.railTodayLink {
+  border: none;
+  background: transparent;
+  color: var(--orbit-accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.railTodayLink:hover {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+/* 适配组件库官方 Calendar 到 288px 右上卡片，消除翻月按钮裁切与底部横向滚动条 */
+.railMiniCalendarWrap {
+  padding: 4px 12px 12px;
+}
+
+.railMiniCalendarWrap :global(.lg-calendar-card) {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  overflow: visible;
+}
+
+.railMiniCalendarWrap :global(.lg-range-root) {
+  overflow: visible;
+}
+
+.railMiniCalendarWrap :global(.lg-range-months) {
+  width: 100%;
+  gap: 0;
+}
+
+.railMiniCalendarWrap :global(.lg-range-month) {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.railMiniCalendarWrap :global(.lg-range-nav) {
+  top: 0;
+  height: 32px;
+  align-items: center;
+  padding-inline: 2px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-nav .lg-button) {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
+.railMiniCalendarWrap :global(.lg-range-month_caption) {
+  height: 32px;
+  margin-bottom: 6px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-caption_label) {
+  font-size: 13px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-month_grid) {
+  width: 100%;
+  border-spacing: 0 2px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-weekday) {
+  height: 22px;
+  font-size: 11px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-day) {
+  height: 29px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-day_button) {
+  width: 29px;
+  height: 29px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.railMiniCalendarWrap :global(.lg-range-selected .lg-range-day_button) {
+  background: var(--orbit-accent);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.railMiniCalendarWrap :global(.lg-range-today:not(.lg-range-selected) .lg-range-day_button) {
+  box-shadow: inset 0 0 0 1.5px var(--orbit-accent);
+  color: var(--orbit-accent);
+  font-weight: 700;
+}
+
+/* 右下联动面板卡片 */
+.railPanelCard {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+}
+
+.railTabsWrap {
+  display: flex;
+  justify-content: stretch;
+}
+
+.railTabsWrap > :global(.lg-segmented) {
+  width: 100%;
+}
+
+.railAgendaHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.railAgendaDate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--orbit-text-muted);
+}
+
+.railAgendaDate strong {
+  font-size: 14px;
+  color: var(--orbit-text);
+}
+
+.railIconAction {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface-strong);
+  color: var(--orbit-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.railIconAction:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  color: var(--orbit-accent);
+}
+
+.railScrollBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 2px;
+}
+
+.railEmptyHint {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
+.railEmptyBtn {
+  border: 1px dashed var(--orbit-border);
+  background: transparent;
+  color: var(--orbit-accent);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.railEmptyBtn:hover {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.railAgendaItem {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px 8px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--orbit-border);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 110ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.railAgendaItem:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--rail-accent, #2563eb) 45%, transparent);
+}
+
+.railAgendaCourse {
+  background: color-mix(in srgb, var(--rail-accent, #6366f1) 11%, var(--orbit-surface-strong));
+}
+
+.railAgendaEvent {
+  background: var(--orbit-surface-strong);
+}
+
+.railAgendaBar {
+  width: 3.5px;
+  border-radius: 999px;
+  background: var(--rail-accent, #2563eb);
+  flex-shrink: 0;
+}
+
+.railAgendaContent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.railAgendaTopRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.railAgendaTitle {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railAgendaTime {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.railAgendaMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+  overflow: hidden;
+}
+
+.railAgendaMeta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railSubSection {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.railSubTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--orbit-text-muted);
+  padding: 2px 2px 0;
+}
+
+.railTaskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--orbit-surface-strong);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.railTaskRow:hover {
+  border-color: var(--orbit-border);
+}
+
+.railTaskDone {
+  opacity: 0.6;
+}
+
+.railTaskDone .railTaskTitle {
+  text-decoration: line-through;
+}
+
+.railTaskCheck {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.railTaskMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.railTaskTitle {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railTaskSub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--orbit-text-muted);
+}
+
+.railOverdueText {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.railPriorityHigh {
+  color: #dc2626;
+  font-weight: 650;
+}
+
+.railRowDelete {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.railTaskRow:hover .railRowDelete {
+  opacity: 1;
+}
+
+.railRowDelete:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.railCollapseBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.railQuickForm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--orbit-border);
+}
+
+.railQuickForm :global(.lg-input) {
+  flex: 1;
+  min-width: 0 !important;
+}
+
+.railSearchWrap {
+  min-width: 0;
+}
+
+.railSearchWrap :global(.lg-input) {
+  width: 100%;
+  min-width: 0 !important;
+}
+
+.railLayerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 9px;
+  transition: background 120ms ease;
+}
+
+.railLayerRow:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.railLayerLabel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.railLayerName {
+  font-size: 12.5px;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railTeamPill {
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.12);
+  color: #7c3aed;
+  flex-shrink: 0;
+}
+
+.railLayerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.railLayerRow:hover .railLayerActions,
+.railLayerRow:focus-within .railLayerActions {
+  opacity: 1;
+}
+
+.railLayerBtn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.railLayerBtn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--orbit-text);
+}
+
+.railLayerBtnDanger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.14);
+  color: #dc2626;
+}
+
+.railLayerBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@keyframes orbitSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinIcon {
+  animation: orbitSpin 0.9s linear infinite;
+}
+
+.railLayerFooter {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--orbit-border);
+}
+
+.popoverCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 12px;
+}
+
+.popoverCardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popoverCardTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--orbit-text);
+  word-break: break-word;
+}
+
+.popoverCardMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--orbit-text-muted);
+}
+
+.popoverCardDesc {
+  margin-top: 4px;
+  color: var(--orbit-text);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.popoverCardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--orbit-border);
+}
+
+/* ── 仿飞书双栏「创建/编辑日程 + 右侧多人忙闲时间轴」样式 ── */
+
+.dialogFooterBar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.eventDialogWide :global(.lg-dialog-panel) {
+  width: min(94vw, 1080px) !important;
+  max-width: 1080px;
+  height: min(88dvh, 760px);
+}
+
+.eventDialogWide :global(.lg-dialog-content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+
+.eventSplitLayout {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.eventSplitLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 6px;
+  min-height: 0;
+}
+
+.eventSplitRight {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--orbit-border);
+  padding-left: 14px;
+}
+
+/* 参与人选择器（按年级 + 单独挑人） */
+.attendeeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid var(--orbit-border);
+}
+
+.attendeeSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.attendeeTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.attendeeSearchWrap {
+  position: relative;
+}
+
+.attendeeDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 210px;
+  overflow-y: auto;
+  border-radius: 12px;
+  padding: 4px;
+  background: var(--lg-sheet-opaque, #ffffff);
+  border: 1px solid var(--orbit-border);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attendeeOptionBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--orbit-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attendeeOptionBtn:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.attendeeOptionMeta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.gradeChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gradeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--orbit-border);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--orbit-text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+[data-theme="dark"] .gradeChip {
+  background: rgba(30, 41, 59, 0.72);
+}
+
+.gradeChip:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: var(--orbit-text);
+}
+
+.gradeChipActive {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #2563eb !important;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .gradeChipActive {
+  color: #93c5fd !important;
+}
+
+.attendeeSelectedList {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 152px;
+  overflow-y: auto;
+}
+
+.attendeeGroupCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.08);
+  padding: 6px 8px;
+}
+
+.attendeeItemRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.attendeeGroupRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.attendeeGroupIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #22c55e, #0ea5e9);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.attendeeRowLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--orbit-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attendeeRowSub {
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+  margin-left: 4px;
+}
+
+.attendeeMiniActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.attendeeMiniBtn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.attendeeMiniBtn:hover {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--orbit-text);
+}
+
+.attendeeGroupMembers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.25);
+}
+
+.attendeeSubPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--orbit-text);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  cursor: pointer;
+}
+
+[data-theme="dark"] .attendeeSubPill {
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.attendeeSubPillHidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+/* 冲突提示与推荐空档 */
+.conflictBar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.09);
+  color: var(--orbit-text);
+}
+
+.conflictBarFree {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.conflictSlotRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.conflictSlotBtn {
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-family: var(--orbit-mono);
+  cursor: pointer;
+}
+
+[data-theme="dark"] .conflictSlotBtn {
+  color: #93c5fd;
+}
+
+.conflictSlotBtn:hover {
+  background: rgba(37, 99, 235, 0.2);
+}
+
+/* 右侧多人时间轴面板 */
+.fbPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+
+.fbToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fbToolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fbStepGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.fbIconBtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--orbit-border);
+  background: transparent;
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.fbIconBtn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--orbit-text);
+}
+
+.fbDateHeading {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--orbit-text);
+}
+
+.fbToolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fbLegend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--orbit-text-muted);
+}
+
+.fbLegendDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-left: 4px;
+}
+
+.fbNoticeBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+  background: rgba(148, 163, 184, 0.1);
+  flex-shrink: 0;
+}
+
+.fbEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 24px;
+  color: var(--orbit-text-muted);
+  font-size: 12.5px;
+  border: 1px dashed var(--orbit-border);
+  border-radius: 14px;
+}
+
+.fbScrollArea {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--orbit-border);
+  border-radius: 14px;
+  background: var(--lg-sheet-opaque, #ffffff);
+  position: relative;
+}
+
+.fbGridContainer {
+  position: relative;
+}
+
+.fbHeaderRow {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  display: grid;
+  background: var(--lg-sheet-opaque, #ffffff);
+  border-bottom: 1px solid var(--orbit-border);
+}
+
+.fbGutterHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  font-size: 10px;
+  color: var(--orbit-text-muted);
+  border-right: 1px solid var(--orbit-border);
+}
+
+.fbMemberHead {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 6px 6px;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  min-width: 0;
+}
+
+.fbMemberHead:last-child {
+  border-right: none;
+}
+
+.fbMemberHeadConflict {
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.fbAvatarWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.fbConflictBadge {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 9.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1.5px var(--lg-sheet-opaque, #ffffff);
+}
+
+.fbHideColBtn {
+  position: absolute;
+  top: -4px;
+  right: -18px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--orbit-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.fbMemberHead:hover .fbHideColBtn {
+  opacity: 1;
+}
+
+.fbMemberName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbMemberSub {
+  font-size: 10.5px;
+  color: var(--orbit-text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbHeadAllDayList {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.fbHeadAllDayPill {
+  display: block;
+  width: 100%;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 2.5px solid var(--fb-color, #3b82f6);
+  background: color-mix(in srgb, var(--fb-color, #3b82f6) 14%, transparent);
+  color: var(--orbit-text);
+  box-sizing: border-box;
+}
+
+.fbBodyGrid {
+  position: relative;
+  display: grid;
+}
+
+.fbTimeGutter {
+  position: relative;
+  border-right: 1px solid var(--orbit-border);
+  background: rgba(148, 163, 184, 0.03);
+}
+
+.fbHourLabel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-size: 10.5px;
+  font-family: var(--orbit-mono);
+  color: var(--orbit-text-muted);
+  transform: translateY(-7px);
+  user-select: none;
+}
+
+.fbNowTimeTag {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--orbit-mono);
+  color: #ef4444;
+  background: var(--lg-sheet-opaque, #ffffff);
+  border-radius: 4px;
+  z-index: 10;
+}
+
+.fbSelectionBand {
+  position: absolute;
+  left: 54px;
+  right: 0;
+  background: rgba(59, 130, 246, 0.12);
+  border-top: 1.5px solid rgba(59, 130, 246, 0.55);
+  border-bottom: 1.5px solid rgba(59, 130, 246, 0.55);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.fbSelectionTag {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--orbit-mono);
+  color: #2563eb;
+  background: color-mix(in srgb, var(--lg-sheet-opaque, #ffffff) 88%, transparent);
+  padding: 0 5px;
+  border-radius: 4px;
+}
+
+[data-theme="dark"] .fbSelectionTag {
+  color: #93c5fd;
+}
+
+.fbNowLine {
+  position: absolute;
+  left: 54px;
+  right: 0;
+  height: 1.5px;
+  background: #ef4444;
+  pointer-events: none;
+  z-index: 9;
+}
+
+.fbMemberCol {
+  position: relative;
+  border-right: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.fbMemberCol:last-child {
+  border-right: none;
+}
+
+.fbHourCell {
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  display: flex;
+  flex-direction: column;
+}
+
+.fbHalfSlot {
+  flex: 1;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fbHalfSlot:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.fbEventBlock {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--fb-color, #3b82f6) 28%, transparent);
+  border-left: 3px solid var(--fb-color, #3b82f6);
+  background: color-mix(in srgb, var(--fb-color, #3b82f6) 16%, var(--lg-sheet-opaque, #ffffff));
+  color: color-mix(in srgb, var(--fb-color, #3b82f6) 78%, var(--orbit-text));
+  box-shadow: 0 0 0 1.5px var(--lg-sheet-opaque, #ffffff), 0 1px 4px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+[data-theme="dark"] .fbEventBlock {
+  background: color-mix(in srgb, var(--fb-color, #3b82f6) 30%, var(--lg-sheet-opaque, #0f172a));
+  color: #ffffff;
+}
+
+.fbEventBlock:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1.5px var(--lg-sheet-opaque, #ffffff), 0 6px 14px rgba(15, 23, 42, 0.16);
+  z-index: 20 !important;
+}
+
+.fbEventTentative {
+  border-style: dashed !important;
+  border-color: color-mix(in srgb, var(--fb-color, #7c3aed) 55%, transparent);
+  border-left: 3px dashed var(--fb-color, #7c3aed) !important;
+  background: color-mix(in srgb, var(--fb-color, #7c3aed) 10%, var(--lg-sheet-opaque, #ffffff));
+}
+
+.fbEventDeclined {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.fbEventTitle {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbEventTime {
+  font-size: 10px;
+  font-family: var(--orbit-mono);
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.fbEventSub {
+  font-size: 10px;
+  opacity: 0.82;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .eventDialogWide :global(.lg-dialog-content) {
+    overflow-y: auto !important;
+  }
+  .eventSplitLayout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .eventSplitRight {
+    border-left: none;
+    border-top: 1px solid var(--orbit-border);
+    padding-left: 0;
+    padding-top: 12px;
+    min-height: 360px;
+  }
+}

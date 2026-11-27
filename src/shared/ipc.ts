@@ -12,6 +12,33 @@ import type {
   OrbitAppManifest,
   RunningMiniAppState,
 } from './miniapp';
+import type {
+  ApplySwpuImportInput,
+  CreateScheduleInput,
+  OrbitSharePackage,
+  SaveTimetableInput,
+  ScheduleCourseWithMeetings,
+  ScheduleDetail,
+  ScheduleSummary,
+  ScheduleTimetable,
+  SwpuImportWindowState,
+  SwpuNetworkMode,
+  UpdateScheduleInput,
+  UpsertCourseInput,
+} from './schedule';
+import type {
+  CalendarCategory,
+  CalendarEvent,
+  CalendarSnapshot,
+  CalendarSubscription,
+  CalendarTask,
+  ImportIcsFileInput,
+  ImportIcsFileResult,
+  SaveCalendarCategoryInput,
+  SaveCalendarSubscriptionInput,
+  UpsertCalendarEventInput,
+  UpsertCalendarTaskInput,
+} from './calendar';
 import type { UpdateChangelog } from './updateChangelog';
 
 export type { UpdateChangelog };
@@ -458,5 +485,50 @@ export interface OrbitBridge {
     onRuntimeChanged: (listener: (snapshot: MiniAppRuntimeSnapshot) => void) => () => void;
     onToastRequested: (listener: (payload: { appId: string; appName: string; message: string; tone?: 'info' | 'success' | 'warning' | 'error' }) => void) => () => void;
     dispatchRealtimeEvent: (payload: { appId: string; roomId?: string | null; event: string; payload?: unknown; ts?: number }) => Promise<void>;
+  };
+  schedule: {
+    listSchedules: () => Promise<ScheduleSummary[]>;
+    getDetail: (scheduleId?: string) => Promise<ScheduleDetail | null>;
+    createSchedule: (input: CreateScheduleInput) => Promise<ScheduleSummary>;
+    updateSchedule: (input: UpdateScheduleInput) => Promise<ScheduleSummary | null>;
+    setActiveSchedule: (scheduleId: string) => Promise<boolean>;
+    deleteSchedule: (scheduleId: string) => Promise<void>;
+    clearCourses: (scheduleId: string) => Promise<void>;
+    upsertCourse: (input: UpsertCourseInput) => Promise<ScheduleCourseWithMeetings>;
+    deleteCourses: (scheduleId: string, courseIds: string[]) => Promise<void>;
+    listTimetables: () => Promise<ScheduleTimetable[]>;
+    saveTimetable: (input: SaveTimetableInput) => Promise<ScheduleTimetable>;
+    getImportState: () => Promise<SwpuImportWindowState>;
+    openSwpuImport: (options?: {
+      networkMode?: SwpuNetworkMode;
+      clearSession?: boolean;
+    }) => Promise<SwpuImportWindowState>;
+    fetchSwpuSchedule: (termCode?: string) => Promise<SwpuImportWindowState>;
+    closeSwpuImport: () => Promise<SwpuImportWindowState>;
+    applySwpuImport: (input: ApplySwpuImportInput) => Promise<ScheduleDetail>;
+    exportIcs: (scheduleId: string) => Promise<{ ok: boolean; cancelled?: boolean; filePath?: string; message?: string }>;
+    exportShareJson: (scheduleId: string) => Promise<{ ok: boolean; json?: string; message?: string }>;
+    importShareJson: (rawJson: string) => Promise<{ ok: boolean; detail?: ScheduleDetail; message?: string }>;
+    onImportStateChanged: (listener: (state: SwpuImportWindowState) => void) => () => void;
+  };
+  calendar: {
+    getSnapshot: () => Promise<CalendarSnapshot>;
+    saveCategory: (input: SaveCalendarCategoryInput) => Promise<CalendarCategory>;
+    setCategoryVisible: (categoryId: string, visible: boolean) => Promise<void>;
+    deleteCategory: (categoryId: string) => Promise<void>;
+    upsertEvent: (input: UpsertCalendarEventInput) => Promise<CalendarEvent>;
+    deleteEvent: (eventId: string) => Promise<void>;
+    upsertTask: (input: UpsertCalendarTaskInput) => Promise<CalendarTask>;
+    toggleTask: (taskId: string, completed: boolean) => Promise<CalendarTask | null>;
+    deleteTask: (taskId: string) => Promise<void>;
+    saveSubscription: (
+      input: SaveCalendarSubscriptionInput,
+    ) => Promise<{ subscription: CalendarSubscription; itemCount: number; warning?: string }>;
+    refreshSubscription: (
+      subscriptionId: string,
+    ) => Promise<{ subscription: CalendarSubscription; itemCount: number; warning?: string }>;
+    setSubscriptionVisible: (subscriptionId: string, visible: boolean) => Promise<void>;
+    deleteSubscription: (subscriptionId: string) => Promise<void>;
+    importIcsFile: (input?: ImportIcsFileInput) => Promise<ImportIcsFileResult>;
   };
 }

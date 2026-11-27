@@ -12,8 +12,9 @@
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
     "test": "bun test test/",
     "bundle:doc": "node scripts/bundle-lec-doc.mjs",
-    "pack:dir": "bun run bundle:doc && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
-    "package:mac": "bun run bundle:doc && bun run build && electron-builder --mac dmg zip --arm64 --x64 --publish never",
+    "build:mac-wifi": "node scripts/build-mac-wifi-addon.mjs",
+    "pack:dir": "bun run bundle:doc && bun run build:mac-wifi && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "package:mac": "bun run bundle:doc && bun run build:mac-wifi && bun run build && electron-builder --mac dmg zip --arm64 --x64 --publish never",
     "package:win": "bun run bundle:doc && bun run build && electron-builder --win nsis --x64 --publish never",
     "docs:dev": "bun run --cwd docs --bun dev",
     "docs:build": "bun run --cwd docs --bun build",
@@ -28,7 +29,8 @@
     "csstype": "3.2.3"
   },
   "dependencies": {
-    "electron-updater": "^6.6.2"
+    "electron-updater": "^6.6.2",
+    "ical.js": "^2.2.1"
   },
   "devDependencies": {
     "@lec-space/icons": "file:../../packages/icons",

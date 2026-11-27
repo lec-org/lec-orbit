@@ -241,3 +241,106 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ── 成员名片内嵌「查看日程（双人对比时间轴）」样式 ── */
+
+.calendarIconCircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(124, 58, 237, 0.16));
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  flex-shrink: 0;
+}
+
+[data-theme='dark'] .calendarIconCircle {
+  color: #93c5fd;
+  border-color: rgba(147, 197, 253, 0.28);
+}
+
+.scheduleDialog :global(.lg-dialog-panel) {
+  width: min(92vw, 680px) !important;
+  max-width: 680px;
+  height: min(86dvh, 720px);
+}
+
+.scheduleDialog :global(.lg-dialog-content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+
+.scheduleHeaderTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scheduleTimelineWrap {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.scheduleFooterRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scheduleFooterHint {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.freeText {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+[data-theme='dark'] .freeText {
+  color: #4ade80;
+}
+
+.conflictText {
+  color: #d97706;
+  font-weight: 600;
+}
+
+[data-theme='dark'] .conflictText {
+  color: #fbbf24;
+}
+
+.quickSlotChip {
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-family: var(--orbit-mono);
+  cursor: pointer;
+}
+
+[data-theme='dark'] .quickSlotChip {
+  color: #93c5fd;
+}
+
+.quickSlotChip:hover {
+  background: rgba(37, 99, 235, 0.2);
+}
