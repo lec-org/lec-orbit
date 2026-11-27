@@ -864,14 +864,14 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
     expect(unlocked('u_zero', 'low-stamina')).toBe(false);
   });
 
-  test('成就升阶体系（方案 A 6 进制：星→月→日→冠）与全量幂等累计去重', () => {
-    // 1. 校验 6 进制升阶进位：1=解锁、2=1星、6=5星、7=1月亮、37=1太阳、217=1皇冠
+  test('成就升阶体系（标准 5 进制：逢 5 进 1，星→月→日→冠）与全量幂等累计去重', () => {
+    // 1. 校验 5 进制升阶进位：1=解锁、2=1星、5=4星、6=1月亮、26=1太阳、126=1皇冠
     expect(formatTitleTierText(computeTitleAchievementTier(1))).toBe('基础解锁');
     expect(formatTitleTierText(computeTitleAchievementTier(2))).toBe('1 星');
-    expect(formatTitleTierText(computeTitleAchievementTier(6))).toBe('5 星');
-    expect(formatTitleTierText(computeTitleAchievementTier(7))).toBe('1 月亮');
-    expect(formatTitleTierText(computeTitleAchievementTier(37))).toBe('1 太阳');
-    expect(formatTitleTierText(computeTitleAchievementTier(217))).toBe('1 皇冠');
+    expect(formatTitleTierText(computeTitleAchievementTier(5))).toBe('4 星');
+    expect(formatTitleTierText(computeTitleAchievementTier(6))).toBe('1 月亮');
+    expect(formatTitleTierText(computeTitleAchievementTier(26))).toBe('1 太阳');
+    expect(formatTitleTierText(computeTitleAchievementTier(126))).toBe('1 皇冠');
     expect(computeTitleAchievementTier(5, false).points).toBe(0);
 
     // 2. 校验连续 3 天不重叠段切分：3/4/5 天均只计 1 段，6/7 天计 2 段
@@ -960,8 +960,11 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
       evalRes.displayTitles.find((t) => t.id === 'quit-gambling')?.unlockCount,
     ).toBe(2);
 
-    // 想吃紫蛋了：5 条历史 + 1 条本周结算 = 6 次（5 星）
+    // 想吃紫蛋了：5 条历史 + 1 条本周结算 = 6 次（1 月亮）
     expect(itemOf('purple-egg').unlockCount).toBe(6);
+    expect(formatTitleTierText(computeTitleAchievementTier(itemOf('purple-egg').unlockCount!))).toBe(
+      '1 月亮',
+    );
     expect(
       evalRes.newAchievementRecords.some(
         (r) => r.titleId === 'purple-egg' && r.occurrenceKey === `week:${prevWeekKey}`,

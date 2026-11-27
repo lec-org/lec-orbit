@@ -44,35 +44,35 @@ export type TitleThemeKey =
   | 'teal'
   | 'slate';
 
-/** 方案 A 升阶进位基数：满 5 颗同级图标后，再达成 1 次（第 6 进阶点）进位到下一阶。 */
-export const TITLE_TIER_BASE = 6;
+/** 称号成就升阶进位基数（标准 5 进制：逢 5 进 1，5 星=1 月亮、5 月亮=1 太阳、5 太阳=1 皇冠）。 */
+export const TITLE_TIER_BASE = 5;
 
 export interface TitleAchievementTier {
   /** 累计达成次数（0=未解锁，1=基础解锁，>=2 开始计星/月/日/冠）。 */
   count: number;
   /** 进阶点数（count >= 1 时为 count - 1，否则为 0）。 */
   points: number;
-  /** 皇冠数量（每 216 进阶点 = 满 5 太阳后再达成 1 次进位）。 */
+  /** 皇冠数量（每 125 进阶点 = 5 太阳进位）。 */
   crowns: number;
-  /** 太阳数量（0..5，每 36 进阶点 = 满 5 月亮后再达成 1 次进位）。 */
+  /** 太阳数量（0..4，每 25 进阶点 = 5 月亮进位）。 */
   suns: number;
-  /** 月亮数量（0..5，每 6 进阶点 = 满 5 星后再达成 1 次进位）。 */
+  /** 月亮数量（0..4，每 5 进阶点 = 5 星进位）。 */
   moons: number;
-  /** 星星数量（0..5）。 */
+  /** 星星数量（0..4）。 */
   stars: number;
-  /** 下一个大阶位名称（一星成就 / 月亮 / 太阳 / 皇冠），一次性成就为 null。 */
+  /** 下一个大阶位名称（1 星 / 1 月亮 / 1 太阳 / 1 皇冠），一次性成就为 null。 */
   nextMajorTierLabel: string | null;
   /** 达到下一个大阶位所需的累计达成总次数，一次性成就为 null。 */
   nextMajorTierCount: number | null;
 }
 
 /**
- * 方案 A 称号成就阶位纯函数（6 进制：满 5 颗同级图标后再达成 1 次进位）：
+ * 称号成就阶位纯函数（标准 5 进制：逢 5 进 1）：
  * - 第 1 次：基础解锁（0 进阶点）
- * - 第 2–6 次：1–5 星（1–5 进阶点）
- * - 第 7 次（满 5 星后再达成 1 次）：1 月亮（6 进阶点）
- * - 第 37 次（满 5 月亮后再达成 1 次）：1 太阳（36 进阶点）
- * - 第 217 次（满 5 太阳后再达成 1 次）：1 皇冠（216 进阶点）
+ * - 第 2–5 次：1–4 星（1–4 进阶点）
+ * - 第 6 次（满 5 进阶点）：1 月亮
+ * - 第 26 次（满 25 进阶点）：1 太阳
+ * - 第 126 次（满 125 进阶点）：1 皇冠
  */
 export function computeTitleAchievementTier(
   count: number,
@@ -105,8 +105,8 @@ export function computeTitleAchievementTier(
   }
   const points = safeCount - 1;
   const base = TITLE_TIER_BASE;
-  const sunUnit = base * base; // 36
-  const crownUnit = sunUnit * base; // 216
+  const sunUnit = base * base; // 25
+  const crownUnit = sunUnit * base; // 125
   const stars = points % base;
   const moons = Math.floor(points / base) % base;
   const suns = Math.floor(points / sunUnit) % base;
@@ -119,13 +119,13 @@ export function computeTitleAchievementTier(
     nextMajorTierCount = 2;
   } else if (points < base) {
     nextMajorTierLabel = '1 月亮';
-    nextMajorTierCount = base + 1; // 7
+    nextMajorTierCount = base + 1; // 6
   } else if (points < sunUnit) {
     nextMajorTierLabel = '1 太阳';
-    nextMajorTierCount = sunUnit + 1; // 37
+    nextMajorTierCount = sunUnit + 1; // 26
   } else if (points < crownUnit) {
     nextMajorTierLabel = '1 皇冠';
-    nextMajorTierCount = crownUnit + 1; // 217
+    nextMajorTierCount = crownUnit + 1; // 126
   } else {
     nextMajorTierLabel = `${crowns + 1} 皇冠`;
     nextMajorTierCount = (crowns + 1) * crownUnit + 1;
@@ -187,7 +187,7 @@ export interface MemberTitleBadge {
   persistent?: boolean;
   hideable?: boolean;
   stackable?: boolean;
-  /** 历史累计达成次数（0=未解锁，1=基础解锁，>=2 按方案 A 满 5 进 1 展示星/月/日/冠）。 */
+  /** 历史累计达成次数（0=未解锁，1=基础解锁，>=2 按标准 5 进制逢 5 进 1 展示星/月/日/冠）。 */
   unlockCount?: number;
   icon: TitleIconKey;
   theme: TitleThemeKey;

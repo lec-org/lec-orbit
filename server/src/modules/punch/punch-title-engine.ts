@@ -1480,7 +1480,7 @@ export function evaluateTeamTitles(
     const curMonthKey = `${nowParts.year}-${pad2(nowParts.month)}`;
     const prevMonthKey = `${prevYear}-${pad2(prevMonth)}`;
 
-    // 为全部 26 项称号提取本次评估窗口内命中的幂等达成键（用于方案 A 6 进制升阶计数）
+    // 为全部 26 项称号提取本次评估窗口内命中的幂等达成键（用于 5 进制逢 5 进 1 升阶计数）
     const detectedKeysByTitleId: Record<string, string[]> = {
       'punch-god': [
         ...(curWeekRecorded > FIFTY_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),

@@ -103,8 +103,8 @@ export type TitleThemeKey =
   | 'teal'
   | 'slate';
 
-/** 方案 A 称号成就升阶进位基数：满 5 颗同级图标后再达成 1 次（第 6 进阶点）进位至下一阶。 */
-export const TITLE_TIER_BASE = 6;
+/** 称号成就升阶进位基数（标准 5 进制：逢 5 进 1，5 星=1 月亮、5 月亮=1 太阳、5 太阳=1 皇冠）。 */
+export const TITLE_TIER_BASE = 5;
 
 export interface TitleAchievementTier {
   count: number;
@@ -118,12 +118,12 @@ export interface TitleAchievementTier {
 }
 
 /**
- * 方案 A 称号成就升阶计算（与服务端 punch-title-catalog.ts 保持完全一致）：
+ * 称号成就升阶计算（标准 5 进制：逢 5 进 1，与服务端 punch-title-catalog.ts 完全一致）：
  * - 第 1 次：基础解锁（0 进阶点）
- * - 第 2–6 次：1–5 星
- * - 第 7 次（五星之后再达成）：1 月亮
- * - 第 37 次（五月亮之后再达成）：1 太阳
- * - 第 217 次（五太阳之后再达成）：1 皇冠
+ * - 第 2–5 次：1–4 星
+ * - 第 6 次（满 5 进阶点）：1 月亮
+ * - 第 26 次（满 25 进阶点）：1 太阳
+ * - 第 126 次（满 125 进阶点）：1 皇冠
  */
 export function computeTitleAchievementTier(
   count: number,
@@ -216,7 +216,7 @@ export interface MemberTitleBadge {
   persistent?: boolean;
   hideable?: boolean;
   stackable?: boolean;
-  /** 历史累计达成次数（>=2 时按方案 A 展示星/月/日/冠阶位）。 */
+  /** 历史累计达成次数（>=2 时按标准 5 进制逢 5 进 1 展示星/月/日/冠阶位）。 */
   unlockCount?: number;
   icon: TitleIconKey;
   theme: TitleThemeKey;

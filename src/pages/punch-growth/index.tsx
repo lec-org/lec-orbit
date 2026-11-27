@@ -591,7 +591,7 @@ export function PunchGrowthPage(): JSX.Element {
                     </span>
                   </div>
 
-                  {/* 成就升阶规则说明卡（方案 A：满 5 进 1，星 → 月亮 → 太阳 → 皇冠） */}
+                  {/* 成就升阶规则说明卡（标准 5 进制：逢 5 进 1，星 → 月亮 → 太阳 → 皇冠） */}
                   <section className={styles.tierRulesCard} aria-label="称号成就升阶规则">
                     <button
                       type="button"
@@ -601,7 +601,7 @@ export function PunchGrowthPage(): JSX.Element {
                     >
                       <span className={styles.tierRulesTitle}>
                         <Info size={13} />
-                        <span>成就升阶规则详情（满 5 进 1）</span>
+                        <span>成就升阶规则详情（逢 5 进 1）</span>
                       </span>
                       <span className={styles.tierRulesToggle}>
                         {tierRulesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -612,29 +612,29 @@ export function PunchGrowthPage(): JSX.Element {
                       <span className={styles.tierLadderArrow}>→</span>
                       <span className={styles.tierLadderChip}>
                         <Star size={11} className={styles.tierRuleStar} fill="currentColor" />
-                        1–5 星（2–6 次）
+                        1–4 星（2–5 次）
                       </span>
                       <span className={styles.tierLadderArrow}>→</span>
                       <span className={styles.tierLadderChip}>
                         <Moon size={11} className={styles.tierRuleMoon} fill="currentColor" />
-                        1 月亮（7 次）
+                        1 月亮（6 次）
                       </span>
                       <span className={styles.tierLadderArrow}>→</span>
                       <span className={styles.tierLadderChip}>
                         <Sun size={11} className={styles.tierRuleSun} fill="currentColor" />
-                        1 太阳（37 次）
+                        1 太阳（26 次）
                       </span>
                       <span className={styles.tierLadderArrow}>→</span>
                       <span className={styles.tierLadderChip}>
                         <Crown size={11} className={styles.tierRuleCrown} fill="currentColor" />
-                        1 皇冠（217 次）
+                        1 皇冠（126 次）
                       </span>
                     </div>
                     {tierRulesOpen && (
                       <ul className={styles.tierRulesList}>
                         <li>
-                          <strong>进位方式：</strong>
-                          达成 1 次解锁基础成就，第 2 次升为 1 星；满 5 颗同级图标后再达成 1 次进位（5 星后 +1 → 1 月亮，5 月亮后 +1 → 1 太阳，5 太阳后 +1 → 1 皇冠）。
+                          <strong>进位方式（5 进制 · 逢 5 进 1）：</strong>
+                          达成 1 次解锁基础成就，第 2 次升为 1 星；每累计 5 颗同级图标自动进位（5 ⭐ = 1 🌙 月亮，5 🌙 = 1 ☀️ 太阳，5 ☀️ = 1 👑 皇冠）。
                         </li>
                         <li>
                           <strong>适用范围：</strong>

@@ -41,12 +41,12 @@ import styles from './TitleBadge.module.css';
 interface TitleTierIconsProps {
   count: number;
   stackable?: boolean;
-  /** compact 用于徽章内紧凑显示（最多 2 阶），full 用于称号图鉴卡片与悬浮卡完整展开（1–5 颗图标）。 */
+  /** compact 用于徽章内紧凑显示（最多 2 阶），full 用于称号图鉴卡片与悬浮卡完整展开（1–4 颗图标）。 */
   mode?: 'compact' | 'full';
   size?: number;
 }
 
-/** 渲染方案 A（6 进制：满 5 进 1）的皇冠 / 太阳 / 月亮 / 星星成就阶位图标串。 */
+/** 渲染标准 5 进制（逢 5 进 1）的皇冠 / 太阳 / 月亮 / 星星成就阶位图标串。 */
 export function TitleTierIcons({
   count,
   stackable = true,
