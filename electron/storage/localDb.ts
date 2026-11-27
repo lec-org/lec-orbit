@@ -97,6 +97,8 @@ function openNativeSqlite(dbPath: string): SqliteDatabaseLike | null {
 
 export class LocalDB {
   private db: SqliteDatabaseLike | null;
+  /** 可重入写事务深度计数，支持批量导入外层单事务原子回滚。 */
+  private writeTxDepth = 0;
   private readonly memoryCache = new Map<string, { value: string; updatedAt: number }>();
   private readonly memoryDrafts = new Map<string, WeeklyDraftRecord>();
   private readonly memoryRecents = new Map<string, DocRecentItem>();
@@ -378,14 +380,29 @@ export class LocalDB {
 
   withWriteTx<T>(fn: () => T): T {
     if (!this.db) return fn();
+    if (this.writeTxDepth > 0) {
+      this.writeTxDepth += 1;
+      try {
+        return fn();
+      } finally {
+        this.writeTxDepth -= 1;
+      }
+    }
     this.db.exec('BEGIN IMMEDIATE');
+    this.writeTxDepth = 1;
     try {
       const result = fn();
       this.db.exec('COMMIT');
       return result;
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // 忽略二次回滚异常
+      }
       throw err;
+    } finally {
+      this.writeTxDepth = 0;
     }
   }
 
@@ -1287,6 +1304,23 @@ export class LocalDB {
       input.color?.trim() ||
       COURSE_COLOR_PALETTE[Math.floor(Math.random() * COURSE_COLOR_PALETTE.length)]!;
 
+    // 校验已存在 courseId 的所属 scheduleId 一致性，防止跨课表覆写
+    if (input.courseId?.trim()) {
+      if (!this.db) {
+        const existingCourse = this.memoryCourses.get(`${scope}::${courseId}`);
+        if (existingCourse && existingCourse.scheduleId !== input.scheduleId) {
+          throw new Error('课程所属课表不匹配，无法跨课表修改该课程');
+        }
+      } else {
+        const existingRow = this.db
+          .prepare('SELECT schedule_id FROM schedule_courses WHERE scope = ? AND id = ?')
+          .get(scope, courseId);
+        if (existingRow && String(existingRow.schedule_id) !== input.scheduleId) {
+          throw new Error('课程所属课表不匹配，无法跨课表修改该课程');
+        }
+      }
+    }
+
     const course: ScheduleCourse = {
       id: courseId,
       scheduleId: input.scheduleId,
@@ -1299,10 +1333,17 @@ export class LocalDB {
       updatedAt: now,
     };
 
+    // 对入参中的 meeting.id 去重，避免重复 ID 触发主键 UNIQUE 约束异常
+    const seenMeetingIds = new Set<string>();
     const meetings: ScheduleMeeting[] = input.meetings.map((m) => {
       const sortedWeeks = [...new Set(m.weeks)].sort((a, b) => a - b);
+      let mtgId = m.id?.trim() || `mtg_${crypto.randomUUID().slice(0, 12)}`;
+      while (seenMeetingIds.has(mtgId)) {
+        mtgId = `mtg_${crypto.randomUUID().slice(0, 12)}`;
+      }
+      seenMeetingIds.add(mtgId);
       return {
-        id: m.id?.trim() || `mtg_${crypto.randomUUID().slice(0, 12)}`,
+        id: mtgId,
         scheduleId: input.scheduleId,
         courseId,
         teacher: m.teacher ?? '',
@@ -1423,29 +1464,44 @@ export class LocalDB {
     });
   }
 
-  /** 原子化落地西柚教务导入结果（支持新建课表或覆盖已有课表） */
+  /** 单事务原子化落地西柚教务导入结果（支持新建课表或覆盖已有课表，中途异常自动完整回滚） */
   applySwpuImport(scope: string, input: ApplySwpuImportInput): ScheduleDetail {
-    const defTt = this.ensureDefaultTimetable(scope);
-    const maxSec = Math.max(
-      12,
-      ...input.courses.flatMap((c) => c.meetings.map((m) => m.endSection)),
-    );
+    const scheduleId = this.withWriteTx(() => {
+      const defTt = this.ensureDefaultTimetable(scope);
+      const maxSec = Math.max(
+        12,
+        ...input.courses.flatMap((c) => c.meetings.map((m) => m.endSection)),
+      );
 
-    let scheduleId: string;
-    if (input.mode === 'replace' && input.targetScheduleId) {
-      const updated = this.updateSchedule(scope, {
-        id: input.targetScheduleId,
-        name: input.scheduleName,
-        termCode: input.termCode,
-        startDate: input.startDate,
-        totalWeeks: input.totalWeeks,
-        maxSections: maxSec,
-        holidays: input.holidays,
-      });
-      if (updated) {
-        scheduleId = updated.id;
-        this.clearScheduleCourses(scope, scheduleId);
-        this.setActiveSchedule(scope, scheduleId);
+      let targetScheduleId: string;
+      if (input.mode === 'replace' && input.targetScheduleId) {
+        const updated = this.updateSchedule(scope, {
+          id: input.targetScheduleId,
+          name: input.scheduleName,
+          termCode: input.termCode,
+          startDate: input.startDate,
+          totalWeeks: input.totalWeeks,
+          maxSections: maxSec,
+          holidays: input.holidays,
+        });
+        if (updated) {
+          targetScheduleId = updated.id;
+          this.clearScheduleCourses(scope, targetScheduleId);
+          this.setActiveSchedule(scope, targetScheduleId);
+        } else {
+          const created = this.createSchedule(scope, {
+            name: input.scheduleName,
+            termCode: input.termCode,
+            timetableId: defTt.id,
+            startDate: input.startDate,
+            weekStartDay: 1,
+            totalWeeks: input.totalWeeks,
+            maxSections: maxSec,
+            holidays: input.holidays,
+            setActive: true,
+          });
+          targetScheduleId = created.id;
+        }
       } else {
         const created = this.createSchedule(scope, {
           name: input.scheduleName,
@@ -1458,71 +1514,62 @@ export class LocalDB {
           holidays: input.holidays,
           setActive: true,
         });
-        scheduleId = created.id;
+        targetScheduleId = created.id;
       }
-    } else {
-      const created = this.createSchedule(scope, {
-        name: input.scheduleName,
-        termCode: input.termCode,
-        timetableId: defTt.id,
-        startDate: input.startDate,
-        weekStartDay: 1,
-        totalWeeks: input.totalWeeks,
-        maxSections: maxSec,
-        holidays: input.holidays,
-        setActive: true,
-      });
-      scheduleId = created.id;
-    }
 
-    for (const course of input.courses) {
-      this.upsertCourseWithMeetings(scope, {
-        scheduleId,
-        name: course.name,
-        courseCode: course.courseCode,
-        credit: course.credit,
-        category: course.category,
-        color: course.color,
-        note: course.note,
-        meetings: course.meetings,
-      });
-    }
+      for (const course of input.courses) {
+        this.upsertCourseWithMeetings(scope, {
+          scheduleId: targetScheduleId,
+          name: course.name,
+          courseCode: course.courseCode,
+          credit: course.credit,
+          category: course.category,
+          color: course.color,
+          note: course.note,
+          meetings: course.meetings,
+        });
+      }
+      return targetScheduleId;
+    });
 
     return this.getScheduleDetail(scope, scheduleId)!;
   }
 
-  /** 导入来自好友的 Orbit 课表分享包 */
+  /** 单事务导入来自好友的 Orbit 课表分享包 */
   importSharePackage(scope: string, pkg: OrbitSharePackage): ScheduleDetail {
-    const tt = this.saveTimetable(scope, {
-      name: `${pkg.timetable.name}（分享）`,
-      fixedDurationEnabled: pkg.timetable.fixedDurationEnabled,
-      defaultDurationMinutes: pkg.timetable.defaultDurationMinutes,
-      slots: pkg.timetable.slots,
-    });
-    const created = this.createSchedule(scope, {
-      name: pkg.schedule.name,
-      termCode: pkg.schedule.termCode,
-      timetableId: tt.id,
-      startDate: pkg.schedule.startDate,
-      weekStartDay: pkg.schedule.weekStartDay,
-      totalWeeks: pkg.schedule.totalWeeks,
-      maxSections: pkg.schedule.maxSections,
-      holidays: pkg.schedule.holidays,
-      setActive: true,
-    });
-    for (const course of pkg.courses) {
-      this.upsertCourseWithMeetings(scope, {
-        scheduleId: created.id,
-        name: course.name,
-        courseCode: course.courseCode,
-        credit: course.credit,
-        category: course.category,
-        color: course.color,
-        note: course.note,
-        meetings: course.meetings,
+    const scheduleId = this.withWriteTx(() => {
+      const tt = this.saveTimetable(scope, {
+        name: `${pkg.timetable.name}（分享）`,
+        fixedDurationEnabled: pkg.timetable.fixedDurationEnabled,
+        defaultDurationMinutes: pkg.timetable.defaultDurationMinutes,
+        slots: pkg.timetable.slots,
       });
-    }
-    return this.getScheduleDetail(scope, created.id)!;
+      const created = this.createSchedule(scope, {
+        name: pkg.schedule.name,
+        termCode: pkg.schedule.termCode,
+        timetableId: tt.id,
+        startDate: pkg.schedule.startDate,
+        weekStartDay: pkg.schedule.weekStartDay,
+        totalWeeks: pkg.schedule.totalWeeks,
+        maxSections: pkg.schedule.maxSections,
+        holidays: pkg.schedule.holidays,
+        setActive: true,
+      });
+      for (const course of pkg.courses) {
+        this.upsertCourseWithMeetings(scope, {
+          scheduleId: created.id,
+          name: course.name,
+          courseCode: course.courseCode,
+          credit: course.credit,
+          category: course.category,
+          color: course.color,
+          note: course.note,
+          meetings: course.meetings,
+        });
+      }
+      return created.id;
+    });
+    return this.getScheduleDetail(scope, scheduleId)!;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1651,8 +1698,13 @@ export class LocalDB {
   }
 
   deleteCalendarCategory(scope: string, categoryId: string): void {
-    if (categoryId === DEFAULT_PERSONAL_CALENDAR_ID) return;
+    // 禁止删除内置「个人日程」与「工作室」日历分组
+    if (categoryId === DEFAULT_PERSONAL_CALENDAR_ID || categoryId === DEFAULT_STUDIO_CALENDAR_ID) {
+      return;
+    }
     if (!this.db) {
+      const target = this.memoryCalCategories.get(`${scope}::${categoryId}`);
+      if (target?.isBuiltin) return;
       this.memoryCalCategories.delete(`${scope}::${categoryId}`);
       for (const [k, ev] of [...this.memoryCalEvents.entries()]) {
         if (k.startsWith(`${scope}::`) && ev.calendarId === categoryId) {
@@ -1662,6 +1714,10 @@ export class LocalDB {
       return;
     }
     this.withWriteTx(() => {
+      const existing = this.db!
+        .prepare('SELECT is_builtin FROM calendar_categories WHERE scope = ? AND id = ?')
+        .get(scope, categoryId);
+      if (!existing || Boolean(existing.is_builtin)) return;
       this.db!
         .prepare('UPDATE calendar_events SET calendar_id = ? WHERE scope = ? AND calendar_id = ?')
         .run(DEFAULT_PERSONAL_CALENDAR_ID, scope, categoryId);
@@ -1707,7 +1763,20 @@ export class LocalDB {
     this.ensureDefaultCalendarCategories(scope);
     const now = Date.now();
     const id = input.id?.trim() || `evt_${crypto.randomUUID().slice(0, 12)}`;
-    const existing = this.listCalendarEvents(scope).find((e) => e.id === id);
+    // 按主键 O(1) 查询原 createdAt，避免每次写入全表扫描 calendar_events
+    let existingCreatedAt: number | null = null;
+    if (input.id?.trim()) {
+      if (!this.db) {
+        existingCreatedAt = this.memoryCalEvents.get(`${scope}::${id}`)?.createdAt ?? null;
+      } else {
+        const row = this.db
+          .prepare('SELECT created_at FROM calendar_events WHERE scope = ? AND id = ?')
+          .get(scope, id);
+        if (row && row.created_at != null) {
+          existingCreatedAt = Number(row.created_at);
+        }
+      }
+    }
     const endDate = input.endDate && input.endDate >= input.startDate ? input.endDate : input.startDate;
     const record: CalendarEvent = {
       id,
@@ -1721,7 +1790,7 @@ export class LocalDB {
       startTime: input.startTime ?? '09:00',
       endTime: input.endTime ?? '10:00',
       reminderMinutes: input.reminderMinutes === undefined ? 15 : input.reminderMinutes,
-      createdAt: existing?.createdAt ?? now,
+      createdAt: existingCreatedAt ?? now,
       updatedAt: now,
     };
 
@@ -2194,33 +2263,73 @@ export class LocalDB {
     });
   }
 
-  /** 将本地 .ics 文件解析出的条目一次性导入为新的本地可编辑日历分组 */
+  /** 单事务 O(N) 批量导入本地 .ics 条目为新的本地可编辑日历分组 */
   importEntriesAsCalendarCategory(
     scope: string,
     input: { name: string; color?: string; entries: ParsedCalendarEntry[] },
   ): { category: CalendarCategory; importedCount: number } {
-    const category = this.saveCalendarCategory(scope, {
-      name: input.name.trim() || '导入日历',
-      color: input.color,
-      visible: true,
-    });
-    let importedCount = 0;
-    for (const entry of input.entries) {
-      this.upsertCalendarEvent(scope, {
-        calendarId: category.id,
-        title: entry.title,
-        description: entry.description,
-        location: entry.location,
-        allDay: entry.allDay,
-        startDate: entry.startDate,
-        endDate: entry.endDate,
-        startTime: entry.startTime,
-        endTime: entry.endTime,
-        reminderMinutes: entry.allDay ? null : 15,
+    return this.withWriteTx(() => {
+      const category = this.saveCalendarCategory(scope, {
+        name: input.name.trim() || '导入日历',
+        color: input.color,
+        visible: true,
       });
-      importedCount += 1;
-    }
-    return { category, importedCount };
+      const now = Date.now();
+      let importedCount = 0;
+
+      if (!this.db) {
+        for (const entry of input.entries) {
+          const id = `evt_${crypto.randomUUID().slice(0, 12)}`;
+          const endDate = entry.endDate && entry.endDate >= entry.startDate ? entry.endDate : entry.startDate;
+          this.memoryCalEvents.set(`${scope}::${id}`, {
+            id,
+            calendarId: category.id,
+            title: entry.title.trim(),
+            description: entry.description ?? '',
+            location: entry.location ?? '',
+            allDay: Boolean(entry.allDay),
+            startDate: entry.startDate,
+            endDate,
+            startTime: entry.startTime || '09:00',
+            endTime: entry.endTime || '10:00',
+            reminderMinutes: entry.allDay ? null : 15,
+            createdAt: now,
+            updatedAt: now,
+          });
+          importedCount += 1;
+        }
+        return { category, importedCount };
+      }
+
+      const insertStmt = this.db.prepare(
+        `INSERT INTO calendar_events
+           (scope, id, calendar_id, title, description, location, all_day,
+            start_date, end_date, start_time, end_time, reminder_minutes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const entry of input.entries) {
+        const id = `evt_${crypto.randomUUID().slice(0, 12)}`;
+        const endDate = entry.endDate && entry.endDate >= entry.startDate ? entry.endDate : entry.startDate;
+        insertStmt.run(
+          scope,
+          id,
+          category.id,
+          entry.title.trim(),
+          entry.description ?? '',
+          entry.location ?? '',
+          entry.allDay ? 1 : 0,
+          entry.startDate,
+          endDate,
+          entry.startTime || '09:00',
+          entry.endTime || '10:00',
+          entry.allDay ? null : 15,
+          now,
+          now,
+        );
+        importedCount += 1;
+      }
+      return { category, importedCount };
+    });
   }
 
   getCalendarSnapshot(scope: string): CalendarSnapshot {

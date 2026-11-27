@@ -544,18 +544,19 @@ async function scanMacOnce(force: boolean): Promise<SinglePassResult> {
   // 1. 优先使用进程内原生 CoreWLAN + CoreLocation N-API 模块（直享 Orbit 自身定位权限，不阻塞主线程）
   const nativeAddon = loadMacNativeWifiAddon();
   if (nativeAddon) {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     try {
       const parsed = await Promise.race([
         nativeAddon.scanWifi(force),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => {
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
             const err = Object.assign(new Error('macOS native CoreWLAN scan timeout'), {
               killed: true,
               code: 'ETIMEDOUT',
             });
             reject(err);
-          }, 18_000),
-        ),
+          }, 18_000);
+        }),
       ]);
       return interpretMacScanPayload(parsed, true);
     } catch (err) {
@@ -570,6 +571,8 @@ async function scanMacOnce(force: boolean): Promise<SinglePassResult> {
           error: formatWifiExecError('macOS', err),
         };
       }
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     }
   }
 

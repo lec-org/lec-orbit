@@ -173,6 +173,22 @@ export function parseIcsEvents(
 
   const entries: ParsedCalendarEntry[] = [];
   const vevents = comp.getAllSubcomponents('vevent');
+  const MAX_OCCURRENCES_PER_EVENT = 260;
+  const MAX_ITERATIONS_PER_EVENT = 5000;
+  const MAX_TOTAL_ENTRIES = 4000;
+
+  interface ParsedVeventRecord {
+    index: number;
+    vevent: ICAL.Component;
+    event: ICAL.Event;
+    uid: string;
+    isRecurrenceException: boolean;
+  }
+
+  // 第一遍：拆分主事件与 RECURRENCE-ID 单次改期例外，并通过 relateException 关联防幽灵重复
+  const mastersByUid = new Map<string, ParsedVeventRecord>();
+  const orderedMasters: ParsedVeventRecord[] = [];
+  const exceptions: ParsedVeventRecord[] = [];
 
   for (let i = 0; i < vevents.length; i += 1) {
     const vevent = vevents[i]!;
@@ -182,40 +198,89 @@ export function parseIcsEvents(
     } catch {
       continue;
     }
+    if (!event.startDate) continue;
+    const uid = String(event.uid ?? '').trim() || `ics:${i}`;
+    const rec: ParsedVeventRecord = {
+      index: i,
+      vevent,
+      event,
+      uid,
+      isRecurrenceException: event.isRecurrenceException(),
+    };
+    if (rec.isRecurrenceException) {
+      exceptions.push(rec);
+    } else {
+      orderedMasters.push(rec);
+      if (event.isRecurring() && !mastersByUid.has(uid)) {
+        mastersByUid.set(uid, rec);
+      }
+    }
+  }
 
+  const standaloneExceptions: ParsedVeventRecord[] = [];
+  for (const ex of exceptions) {
+    const master = mastersByUid.get(ex.uid);
+    if (master) {
+      try {
+        master.event.relateException(ex.event);
+      } catch {
+        standaloneExceptions.push(ex);
+      }
+    } else {
+      standaloneExceptions.push(ex);
+    }
+  }
+
+  const extractBadge = (vevent: ICAL.Component, summary: string): 'off' | 'work' | null => {
+    const specialDayVal = String(vevent.getFirstPropertyValue('x-apple-special-day') ?? '').trim();
+    if (/ALTERNATE-WORKDAY/i.test(specialDayVal) || /补班|调休上班/.test(summary)) {
+      return 'work';
+    }
+    if (/WORK-HOLIDAY/i.test(specialDayVal) || /放假|法定假日/.test(summary)) {
+      return 'off';
+    }
+    return null;
+  };
+
+  for (const rec of [...orderedMasters, ...standaloneExceptions]) {
+    if (entries.length >= MAX_TOTAL_ENTRIES) break;
+    const { vevent, event, uid } = rec;
     const summary = String(event.summary ?? '').trim();
     if (!summary || !event.startDate) continue;
 
-    const uid = String(event.uid ?? '').trim() || `ics:${i}`;
     const description = String(event.description ?? '').trim();
     const location = String(event.location ?? '').trim();
-    const specialDayVal = String(vevent.getFirstPropertyValue('x-apple-special-day') ?? '').trim();
+    const badge = extractBadge(vevent, summary);
 
-    let badge: 'off' | 'work' | null = null;
-    if (/ALTERNATE-WORKDAY/i.test(specialDayVal) || /补班|调休上班/.test(summary)) {
-      badge = 'work';
-    } else if (/WORK-HOLIDAY/i.test(specialDayVal) || /放假|法定假日/.test(summary)) {
-      badge = 'off';
-    }
-
-    if (event.isRecurring()) {
+    if (event.isRecurring() && !rec.isRecurrenceException) {
       const iter = event.iterator();
       let next: ICAL.Time | null;
       let count = 0;
-      const MAX_OCCURRENCES = 260;
+      let iterations = 0;
 
-      while ((next = iter.next()) && count < MAX_OCCURRENCES) {
-        const jsStart = next.toJSDate();
+      while (
+        entries.length < MAX_TOTAL_ENTRIES &&
+        count < MAX_OCCURRENCES_PER_EVENT &&
+        iterations < MAX_ITERATIONS_PER_EVENT &&
+        (next = iter.next())
+      ) {
+        iterations += 1;
+        const occ = event.getOccurrenceDetails(next);
+        const jsStart = occ.startDate.toJSDate();
         if (jsStart > windowEnd) break;
         if (jsStart < windowStart) continue;
-        const occ = event.getOccurrenceDetails(next);
+
+        const occItem = occ.item ?? event;
+        const occSummary = String(occItem.summary ?? summary).trim() || summary;
+        const occDescription = String(occItem.description ?? description).trim();
+        const occLocation = String(occItem.location ?? location).trim();
         entries.push(
           buildEntryFromRange({
             uid: `${uid}#${next.toString()}`,
-            summary,
-            description,
-            location,
-            badge,
+            summary: occSummary,
+            description: occDescription,
+            location: occLocation,
+            badge: extractBadge(occItem.component ?? vevent, occSummary),
             startTimeObj: occ.startDate,
             endTimeObj: occ.endDate ?? null,
           }),
@@ -225,7 +290,7 @@ export function parseIcsEvents(
     } else {
       entries.push(
         buildEntryFromRange({
-          uid,
+          uid: rec.isRecurrenceException && event.recurrenceId ? `${uid}#${event.recurrenceId.toString()}` : uid,
           summary,
           description,
           location,

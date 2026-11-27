@@ -38,11 +38,24 @@ export class SwpuScheduleImporter {
   private autoFetchInFlight = false;
   private lastAutoFetchedOrigin = '';
   private configuredProxyMode: SwpuNetworkMode | null = null;
+  /** 防重入锁：并发点击 openLoginWindow 时复用同一个创建流程，避免创建孤儿窗口。 */
+  private openWindowPromise: Promise<SwpuImportWindowState> | null = null;
+  /** 自动导航触发的延迟抓取定时器，支持在切学期/页面完成/关窗时及时取消。 */
+  private autoFetchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 递增抓取序号，丢弃晚到的旧学期/旧抓取结果防止竞态覆写。 */
+  private fetchSeq = 0;
 
   constructor(
     private readonly getParentWindow: () => BrowserWindow | null,
     private readonly onStateChanged: (state: SwpuImportWindowState) => void,
   ) {}
+
+  private clearAutoFetchTimer(): void {
+    if (this.autoFetchTimer) {
+      clearTimeout(this.autoFetchTimer);
+      this.autoFetchTimer = null;
+    }
+  }
 
   getState(): SwpuImportWindowState {
     return this.state;
@@ -125,6 +138,22 @@ export class SwpuScheduleImporter {
     networkMode?: SwpuNetworkMode;
     clearSession?: boolean;
   }): Promise<SwpuImportWindowState> {
+    if (this.openWindowPromise) {
+      return this.openWindowPromise;
+    }
+    const task = this.openLoginWindowInternal(options).finally(() => {
+      if (this.openWindowPromise === task) {
+        this.openWindowPromise = null;
+      }
+    });
+    this.openWindowPromise = task;
+    return task;
+  }
+
+  private async openLoginWindowInternal(options?: {
+    networkMode?: SwpuNetworkMode;
+    clearSession?: boolean;
+  }): Promise<SwpuImportWindowState> {
     const networkMode: SwpuNetworkMode = options?.networkMode ?? this.state.networkMode ?? 'system';
     const entryUrl = networkMode === 'webvpn' ? SWPU_WEBVPN_LOGIN_URL : SWPU_SSO_LOGIN_URL;
     const sess = await this.configureSession(networkMode);
@@ -133,8 +162,10 @@ export class SwpuScheduleImporter {
       await sess.clearStorageData({ storages: ['cookies', 'localstorage', 'shadercache'] });
     }
 
+    this.clearAutoFetchTimer();
     this.lastAutoFetchedOrigin = '';
     this.autoFetchInFlight = false;
+    this.fetchSeq += 1;
 
     if (this.win && !this.win.isDestroyed()) {
       this.win.show();
@@ -191,8 +222,12 @@ export class SwpuScheduleImporter {
         const origin = new URL(url).origin;
         if (!this.autoFetchInFlight && this.lastAutoFetchedOrigin !== origin) {
           this.lastAutoFetchedOrigin = origin;
-          setTimeout(() => {
-            void this.fetchSchedule();
+          this.clearAutoFetchTimer();
+          this.autoFetchTimer = setTimeout(() => {
+            this.autoFetchTimer = null;
+            if (!this.autoFetchInFlight && !win.isDestroyed()) {
+              void this.fetchSchedule();
+            }
           }, 600);
         }
       }
@@ -214,6 +249,7 @@ export class SwpuScheduleImporter {
       if (!url.startsWith('http')) return;
       if (this.isSwpuJwUrl(url)) {
         if (!this.autoFetchInFlight && !this.state.preview) {
+          this.clearAutoFetchTimer();
           void this.fetchSchedule();
         }
       } else if (this.state.stage === 'waiting_login') {
@@ -235,8 +271,10 @@ export class SwpuScheduleImporter {
     });
 
     win.on('closed', () => {
+      this.clearAutoFetchTimer();
       this.win = null;
       this.autoFetchInFlight = false;
+      this.fetchSeq += 1;
       this.emit({
         open: false,
         stage: this.state.preview ? 'ready' : 'idle',
@@ -296,6 +334,8 @@ export class SwpuScheduleImporter {
       });
     }
 
+    this.clearAutoFetchTimer();
+    const seq = ++this.fetchSeq;
     this.autoFetchInFlight = true;
     this.emit({
       stage: 'fetching',
@@ -313,13 +353,17 @@ export class SwpuScheduleImporter {
         const requestedTerm = ${safeTermArg};
         const today = ${JSON.stringify(todayStr)};
         const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+        // 动态截取 WebVPN 等反向代理路径前缀（例如 /https/7772.../jwapp/...），防止硬编码根路径 404
+        const jwMarkerIdx = location.pathname.indexOf('/jwapp/');
+        const jwPrefix = jwMarkerIdx > 0 ? location.pathname.slice(0, jwMarkerIdx) : '';
+        const apiUrl = (path) => jwPrefix + path;
 
         // 1. 拉取全部可选学期与当前默认学期
         let terms = [];
         let selectedTermCode = requestedTerm || '';
         let selectedTermName = '';
         try {
-          const r = await fetch('/jwapp/sys/homeapp/api/home/kb/xnxq.do', {
+          const r = await fetch(apiUrl('/jwapp/sys/homeapp/api/home/kb/xnxq.do'), {
             method: 'GET',
             credentials: 'include',
             headers,
@@ -350,7 +394,7 @@ export class SwpuScheduleImporter {
         // 兜底：若 homeapp 学期接口未取到，回退 wdkb/dqxnxq.do
         if (!selectedTermCode) {
           try {
-            const r = await fetch('/jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do', {
+            const r = await fetch(apiUrl('/jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do'), {
               method: 'POST',
               credentials: 'include',
               headers,
@@ -376,7 +420,7 @@ export class SwpuScheduleImporter {
         // 2. 拉取当前教学周（用于反推本学期第 1 周周一开学日期）
         let classWeek = null;
         try {
-          const r = await fetch('/jwapp/sys/homeapp/api/home/teachingSchedule/classWeek.do?rq=' + encodeURIComponent(today), {
+          const r = await fetch(apiUrl('/jwapp/sys/homeapp/api/home/teachingSchedule/classWeek.do?rq=' + encodeURIComponent(today)), {
             method: 'GET',
             credentials: 'include',
             headers,
@@ -391,7 +435,7 @@ export class SwpuScheduleImporter {
         // 3. 尝试提取本月节假日标记（非必需，失败静默忽略）
         let holidays = [];
         try {
-          const r = await fetch('/jwapp/sys/homeapp/api/home/teachingSchedule/list.do?rq=' + encodeURIComponent(today) + '&lxdm=student', {
+          const r = await fetch(apiUrl('/jwapp/sys/homeapp/api/home/teachingSchedule/list.do?rq=' + encodeURIComponent(today) + '&lxdm=student'), {
             method: 'GET',
             credentials: 'include',
             headers,
@@ -407,7 +451,7 @@ export class SwpuScheduleImporter {
         } catch {}
 
         // 4. 拉取整学期完整课表
-        const kbRes = await fetch('/jwapp/sys/wdkb/modules/xskcb/cxxszhxqkb.do', {
+        const kbRes = await fetch(apiUrl('/jwapp/sys/wdkb/modules/xskcb/cxxszhxqkb.do'), {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -434,6 +478,11 @@ export class SwpuScheduleImporter {
           rows,
         };
       })()`)) as RawPageFetchResult;
+
+      // 若在异步执行期间已发起更新的抓取或关闭了窗口，丢弃过期结果防止状态错乱
+      if (seq !== this.fetchSeq) {
+        return this.state;
+      }
 
       if (!raw || !raw.ok) {
         return this.emit({
@@ -481,17 +530,24 @@ export class SwpuScheduleImporter {
             : `${preview.termName} 暂无排课记录，可切换其他学期查看`,
       });
     } catch (err) {
+      if (seq !== this.fetchSeq) {
+        return this.state;
+      }
       return this.emit({
         stage: 'error',
         error: err instanceof Error ? err.message : String(err),
         message: '提取课表时发生异常，请点击「重新抓取」重试',
       });
     } finally {
-      this.autoFetchInFlight = false;
+      if (seq === this.fetchSeq) {
+        this.autoFetchInFlight = false;
+      }
     }
   }
 
   close(): SwpuImportWindowState {
+    this.clearAutoFetchTimer();
+    this.fetchSeq += 1;
     if (this.win && !this.win.isDestroyed()) {
       this.win.close();
     }
@@ -503,7 +559,29 @@ export class SwpuScheduleImporter {
     });
   }
 
+  /** 登出或切换 Orbit 账号时调用：关闭窗口、清空内存课表预览并清理隔离教务会话，防止跨账号泄漏。 */
+  async resetForSignOut(): Promise<void> {
+    this.clearAutoFetchTimer();
+    this.fetchSeq += 1;
+    this.autoFetchInFlight = false;
+    this.lastAutoFetchedOrigin = '';
+    if (this.win && !this.win.isDestroyed()) {
+      this.win.destroy();
+    }
+    this.win = null;
+    this.state = { ...INITIAL_SWPU_IMPORT_STATE };
+    this.onStateChanged(this.state);
+    try {
+      const sess = session.fromPartition(SWPU_IMPORT_PARTITION);
+      await sess.clearStorageData({ storages: ['cookies', 'localstorage', 'shadercache'] });
+    } catch {
+      // 忽略清理异常
+    }
+  }
+
   destroy(): void {
+    this.clearAutoFetchTimer();
+    this.fetchSeq += 1;
     if (this.win && !this.win.isDestroyed()) {
       this.win.destroy();
     }

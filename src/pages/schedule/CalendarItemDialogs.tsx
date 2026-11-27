@@ -4,7 +4,7 @@
  * 2. CategoryEditorDialog（新建自定义日历分组）
  * 3. DayDetailDialog（月视图点击某日「+N 项」或「N 节课」弹出当日完整时间线）
  */
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import {
   Avatar,
   Button,
@@ -176,6 +176,7 @@ export function EventTaskEditorDialog({
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // 合并当前用户与工作室花名册，确保花名册加载慢或离线时仍至少包含自己
   const normalizedMembers = useMemo(() => {
@@ -240,8 +241,13 @@ export function EventTaskEditorDialog({
       .map(([grade, members]) => ({ grade, members }));
   }, [normalizedMembers]);
 
+  // 通过 ref 读取最新 categories，避免后台同步刷新在用户填表期间触发初始化 useEffect 清空表单
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
+
   useEffect(() => {
     if (!open || !draft) return;
+    const latestCategories = categoriesRef.current;
     setError(null);
     setKind(draft.kind);
     setMemberSearch('');
@@ -278,9 +284,9 @@ export function EventTaskEditorDialog({
       );
     } else {
       const initCalId =
-        draft.defaultCalendarId && categories.some((c) => c.id === draft.defaultCalendarId)
+        draft.defaultCalendarId && latestCategories.some((c) => c.id === draft.defaultCalendarId)
           ? draft.defaultCalendarId
-          : categories[0]?.id ?? DEFAULT_PERSONAL_CALENDAR_ID;
+          : latestCategories[0]?.id ?? DEFAULT_PERSONAL_CALENDAR_ID;
       setEvTitle('');
       setEvCalendarId(initCalId);
       setEvAllDay(false);
@@ -322,7 +328,7 @@ export function EventTaskEditorDialog({
       setTskReminder('15');
       setTskDesc('');
     }
-  }, [open, draft, categories, currentUser?.userId]);
+  }, [open, draft, currentUser?.userId]);
 
   // 合并最终解析出的参与人 ID 列表（自己置顶 + 年级成员 + 单独挑选成员，去重）
   const resolvedAttendeeIds = useMemo(() => {
@@ -346,13 +352,8 @@ export function EventTaskEditorDialog({
     return ordered;
   }, [selectedUserIds, selectedGrades, gradeGroups, currentUser?.userId]);
 
-  // 是否开启右侧多人时间轴双栏视图
-  const showTimelineSplit =
-    kind === 'event' &&
-    (timelineExpanded ||
-      evCalendarId === DEFAULT_STUDIO_CALENDAR_ID ||
-      selectedGrades.length > 0 ||
-      resolvedAttendeeIds.length > 1);
+  // 是否开启右侧多人时间轴双栏视图（完全受 timelineExpanded 控制，确保「收起时间对比」按钮始终可用）
+  const showTimelineSplit = kind === 'event' && timelineExpanded;
 
   // 单独挑人过滤（剔除已作为单人选中的，搜索匹配姓名/用户名/年级）
   const searchCandidates = useMemo(() => {
@@ -565,17 +566,17 @@ export function EventTaskEditorDialog({
   }, [showTimelineSplit, visibleTimelineMembers, evStartTime, evEndTime, evAllDay]);
 
   const toggleGrade = (grade: number) => {
-    setSelectedGrades((prev) => {
-      const exists = prev.includes(grade);
-      const next = exists ? prev.filter((g) => g !== grade) : [...prev, grade].sort((a, b) => b - a);
-      if (!exists) {
-        setTimelineExpanded(true);
-        if (evCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-          setEvCalendarId(DEFAULT_STUDIO_CALENDAR_ID);
-        }
+    const exists = selectedGrades.includes(grade);
+    const next = exists
+      ? selectedGrades.filter((g) => g !== grade)
+      : [...selectedGrades, grade].sort((a, b) => b - a);
+    setSelectedGrades(next);
+    if (!exists) {
+      setTimelineExpanded(true);
+      if (evCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+        setEvCalendarId(DEFAULT_STUDIO_CALENDAR_ID);
       }
-      return next;
-    });
+    }
   };
 
   const toggleAllGrades = () => {
@@ -1211,8 +1212,22 @@ export function EventTaskEditorDialog({
         <Button
           variant="glass"
           destructive
+          loading={deleting}
+          disabled={saving}
           icon={<Trash2 size={14} />}
-          onClick={() => void onDeleteEvent(draft.editingEvent!.id).then(() => onOpenChange(false))}
+          onClick={async () => {
+            if (deleting || saving) return;
+            setDeleting(true);
+            setError(null);
+            try {
+              await onDeleteEvent(draft.editingEvent!.id);
+              onOpenChange(false);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : '删除日程失败，请稍后重试');
+            } finally {
+              setDeleting(false);
+            }
+          }}
         >
           删除日程
         </Button>
@@ -1220,8 +1235,22 @@ export function EventTaskEditorDialog({
         <Button
           variant="glass"
           destructive
+          loading={deleting}
+          disabled={saving}
           icon={<Trash2 size={14} />}
-          onClick={() => void onDeleteTask(draft.editingTask!.id).then(() => onOpenChange(false))}
+          onClick={async () => {
+            if (deleting || saving) return;
+            setDeleting(true);
+            setError(null);
+            try {
+              await onDeleteTask(draft.editingTask!.id);
+              onOpenChange(false);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : '删除任务失败，请稍后重试');
+            } finally {
+              setDeleting(false);
+            }
+          }}
         >
           删除任务
         </Button>
@@ -1230,10 +1259,10 @@ export function EventTaskEditorDialog({
       )}
 
       <div className={styles.dialogFooterRight}>
-        <Button variant="glass" onClick={() => onOpenChange(false)}>
+        <Button variant="glass" disabled={saving || deleting} onClick={() => onOpenChange(false)}>
           取消
         </Button>
-        <Button variant="filled" loading={saving} onClick={() => void handleSubmit()}>
+        <Button variant="filled" loading={saving} disabled={deleting} onClick={() => void handleSubmit()}>
           {kind === 'event' ? '保存日程' : '保存任务'}
         </Button>
       </div>

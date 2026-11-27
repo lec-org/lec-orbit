@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   layoutDayTimedEvents,
   layoutOverlappingIntervals,
-} from '../../../packages/liquidglass/src/internal/schedule-utils';
+} from '../src/shared/overlapLayout';
 import {
   findCommonFreeSlots,
   hasConflictInRange,

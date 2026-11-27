@@ -19,6 +19,8 @@ import { getOrbitClient } from '@/services/orbitClient';
 interface ScheduleStoreState {
   loading: boolean;
   loaded: boolean;
+  /** 最近一次成功加载课表时对应的账号 subject，防切号串数据上报。 */
+  loadedSubject: string | null;
   schedules: ScheduleSummary[];
   timetables: ScheduleTimetable[];
   activeDetail: ScheduleDetail | null;
@@ -33,7 +35,9 @@ interface ScheduleStoreState {
     meetingCount: number;
   } | null;
 
-  loadAll: (preferredScheduleId?: string) => Promise<void>;
+  /** 登出或切换账号时彻底重置课表内存态。 */
+  reset: () => void;
+  loadAll: (preferredScheduleId?: string, options?: { forceRecalcWeek?: boolean }) => Promise<void>;
   setViewingWeek: (week: number) => void;
   jumpToCurrentWeek: () => void;
   setImportState: (state: SwpuImportWindowState) => void;
@@ -59,9 +63,12 @@ function clampWeek(week: number, totalWeeks: number): number {
   return Math.max(1, Math.min(Math.max(1, totalWeeks), week));
 }
 
+let scheduleLoadSeq = 0;
+
 export const useScheduleStore = create<ScheduleStoreState>((set, get) => ({
   loading: false,
   loaded: false,
+  loadedSubject: null,
   schedules: [],
   timetables: [],
   activeDetail: null,
@@ -69,21 +76,46 @@ export const useScheduleStore = create<ScheduleStoreState>((set, get) => ({
   importState: INITIAL_SWPU_IMPORT_STATE,
   importSuccessNotice: null,
 
-  loadAll: async (preferredScheduleId) => {
+  reset: () => {
+    scheduleLoadSeq += 1;
+    set({
+      loading: false,
+      loaded: false,
+      loadedSubject: null,
+      schedules: [],
+      timetables: [],
+      activeDetail: null,
+      viewingWeek: 1,
+      importState: INITIAL_SWPU_IMPORT_STATE,
+      importSuccessNotice: null,
+    });
+  },
+
+  loadAll: async (preferredScheduleId, options) => {
+    const reqSeq = ++scheduleLoadSeq;
     set({ loading: true });
     try {
-      const api = getOrbitClient().schedule;
-      const [schedules, timetables, detail, importState] = await Promise.all([
+      const client = getOrbitClient();
+      const api = client.schedule;
+      const [schedules, timetables, detail, importState, authState] = await Promise.all([
         api.listSchedules(),
         api.listTimetables(),
         api.getDetail(preferredScheduleId),
         api.getImportState(),
+        client.auth.getState().catch(() => null),
       ]);
+      if (reqSeq !== scheduleLoadSeq) return;
 
+      const resolvedSubject = authState?.authenticated ? (authState.profile?.subject ?? null) : null;
       const prevDetail = get().activeDetail;
       let nextWeek = get().viewingWeek;
       if (detail) {
-        const shouldResetWeek = !get().loaded || prevDetail?.schedule.id !== detail.schedule.id;
+        const shouldResetWeek =
+          Boolean(options?.forceRecalcWeek) ||
+          !get().loaded ||
+          prevDetail?.schedule.id !== detail.schedule.id ||
+          prevDetail?.schedule.startDate !== detail.schedule.startDate ||
+          prevDetail?.schedule.weekStartDay !== detail.schedule.weekStartDay;
         if (shouldResetWeek) {
           const computed = computeWeekFromStartDate(
             detail.schedule.startDate,
@@ -101,6 +133,7 @@ export const useScheduleStore = create<ScheduleStoreState>((set, get) => ({
       set({
         loading: false,
         loaded: true,
+        loadedSubject: resolvedSubject,
         schedules,
         timetables,
         activeDetail: detail,
@@ -108,7 +141,9 @@ export const useScheduleStore = create<ScheduleStoreState>((set, get) => ({
         importState,
       });
     } catch {
-      set({ loading: false, loaded: true });
+      if (reqSeq !== scheduleLoadSeq) return;
+      // 加载异常时不标记 loaded=true，防止页面把空课表快照误上报覆盖云端
+      set({ loading: false });
     }
   },
 
@@ -145,7 +180,8 @@ export const useScheduleStore = create<ScheduleStoreState>((set, get) => ({
 
   updateSchedule: async (input) => {
     await getOrbitClient().schedule.updateSchedule(input);
-    await get().loadAll(input.id);
+    const dateChanged = input.startDate !== undefined || input.weekStartDay !== undefined;
+    await get().loadAll(input.id, { forceRecalcWeek: dateChanged });
   },
 
   deleteSchedule: async (scheduleId) => {

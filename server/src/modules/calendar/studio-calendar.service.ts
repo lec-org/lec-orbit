@@ -224,10 +224,56 @@ export function expandScheduleSnapshotForDate(
   return blocks;
 }
 
+/** 单次忙闲查询允许返回的成员上限，防止无节制全员明文拉取。 */
+const MAX_FREEBUSY_MEMBERS = 60;
+
+/**
+ * 将跨天或单日日程精确切分到指定日期的忙碌时段：
+ * - 全天事件直接返回 allDay: true；
+ * - 跨天非全天事件按首日 [startTime, 23:59]、中间整日 allDay: true、末日 [00:00, endTime] 拆分，
+ *   避免如 20:00~次日 09:00 的活动把两天都误判为全天冲突。
+ */
+export function sliceEventForDate(
+  ev: {
+    allDay: boolean;
+    startDate: string;
+    endDate: string;
+    startTime?: string;
+    endTime?: string;
+  },
+  dateStr: string,
+): { allDay: boolean; startTime: string; endTime: string } {
+  if (ev.allDay) {
+    return { allDay: true, startTime: '00:00', endTime: '23:59' };
+  }
+  const startTime = ev.startTime || '09:00';
+  const endTime = ev.endTime || '10:00';
+  if (ev.startDate >= ev.endDate) {
+    return { allDay: false, startTime, endTime };
+  }
+  if (dateStr === ev.startDate) {
+    return { allDay: false, startTime, endTime: '23:59' };
+  }
+  if (dateStr === ev.endDate) {
+    return { allDay: false, startTime: '00:00', endTime };
+  }
+  return { allDay: true, startTime: '00:00', endTime: '23:59' };
+}
+
+/** 判断某条工作室共享日程是否为面向特定成员/年级的定向日程。 */
+function isTargetedStudioEvent(event: {
+  attendeeUserIds?: readonly string[];
+  attendeeGrades?: readonly number[];
+}): boolean {
+  const userIds = Array.isArray(event.attendeeUserIds) ? event.attendeeUserIds : [];
+  const grades = Array.isArray(event.attendeeGrades) ? event.attendeeGrades : [];
+  return userIds.length > 0 || grades.length > 0;
+}
+
 /** 判断某条工作室共享日程是否关联到指定成员。 */
-function isMemberInStudioEvent(
-  event: StudioCalendarEventEntity,
-  member: MemberDTO,
+export function isMemberInStudioEvent(
+  event: Pick<StudioCalendarEventEntity, 'attendeeUserIds' | 'attendeeGrades' | 'creatorId'>,
+  member: Pick<MemberDTO, 'userId' | 'enrollYear'>,
 ): boolean {
   const userIds = Array.isArray(event.attendeeUserIds) ? event.attendeeUserIds : [];
   const grades = Array.isArray(event.attendeeGrades) ? event.attendeeGrades : [];
@@ -252,14 +298,39 @@ export class StudioCalendarService {
     private readonly hub: RealtimeHub,
   ) {}
 
+  /** 按日程受邀范围分发实时事件：全员日程广播，定向日程仅推送给相关成员避免全员打扰。 */
+  private async emitCalendarRealtime(
+    type: 'studio_calendar.created' | 'studio_calendar.updated' | 'studio_calendar.deleted',
+    payload: unknown,
+    scopes: ReadonlyArray<
+      Pick<StudioCalendarEventEntity, 'attendeeUserIds' | 'attendeeGrades' | 'creatorId'>
+    >,
+  ): Promise<void> {
+    if (scopes.some((s) => !isTargetedStudioEvent(s))) {
+      await this.hub.broadcast({ type, payload });
+      return;
+    }
+    const members = await this.rosterService.listActive();
+    const targetIds = new Set<string>();
+    for (const scope of scopes) {
+      if (scope.creatorId) targetIds.add(scope.creatorId);
+      for (const uid of scope.attendeeUserIds ?? []) {
+        targetIds.add(uid);
+      }
+      for (const member of members) {
+        if (isMemberInStudioEvent(scope, member)) {
+          targetIds.add(member.userId);
+        }
+      }
+    }
+    await Promise.all(
+      Array.from(targetIds).map((uid) => this.hub.pushToUser(uid, { type, payload })),
+    );
+  }
+
   async list(range?: { from?: string; to?: string }): Promise<StudioCalendarEventDTO[]> {
-    const qb = this.repo
-      .createQueryBuilder('e')
-      .where('e.deleted_at IS NULL')
-      .orderBy('e.start_date', 'ASC')
-      .addOrderBy('e.all_day', 'DESC')
-      .addOrderBy('e.start_time', 'ASC')
-      .limit(500);
+    const hasRange = Boolean(range?.from || range?.to);
+    const qb = this.repo.createQueryBuilder('e').where('e.deleted_at IS NULL');
 
     if (range?.from) {
       qb.andWhere('e.end_date >= :from', { from: range.from });
@@ -268,7 +339,22 @@ export class StudioCalendarService {
       qb.andWhere('e.start_date <= :to', { to: range.to });
     }
 
+    if (hasRange) {
+      qb.orderBy('e.start_date', 'ASC')
+        .addOrderBy('e.all_day', 'DESC')
+        .addOrderBy('e.start_time', 'ASC')
+        .limit(1000);
+      const rows = await qb.getMany();
+      return rows.map(toDto);
+    }
+
+    // 未传时间窗时按最新日程优先截取，避免历史旧记录累积后把当前与未来日程挤出窗口
+    qb.orderBy('e.start_date', 'DESC')
+      .addOrderBy('e.all_day', 'DESC')
+      .addOrderBy('e.start_time', 'DESC')
+      .limit(1000);
     const rows = await qb.getMany();
+    rows.reverse();
     return rows.map(toDto);
   }
 
@@ -278,7 +364,10 @@ export class StudioCalendarService {
   ): Promise<StudioCalendarEventDTO> {
     const allDay = Boolean(input.allDay);
     const startDate = input.startDate;
-    const endDate = input.endDate && input.endDate >= startDate ? input.endDate : startDate;
+    const endDate = input.endDate ?? startDate;
+    if (endDate < startDate) {
+      throw new BadRequestException('结束日期不能早于开始日期');
+    }
     const startTime = input.startTime ?? '09:00';
     const endTime = input.endTime ?? '10:00';
 
@@ -317,7 +406,7 @@ export class StudioCalendarService {
 
     await this.repo.save(entity);
     const dto = toDto(entity);
-    await this.hub.broadcast({ type: 'studio_calendar.created', payload: dto });
+    await this.emitCalendarRealtime('studio_calendar.created', dto, [entity]);
     return dto;
   }
 
@@ -334,14 +423,22 @@ export class StudioCalendarService {
       throw new ForbiddenException('仅日程发起人或工作室队长可以修改该团队日程');
     }
 
+    const prevScope = {
+      creatorId: existing.creatorId,
+      attendeeUserIds: [...(existing.attendeeUserIds ?? [])],
+      attendeeGrades: [...(existing.attendeeGrades ?? [])],
+    };
+
     const nextAllDay = input.allDay ?? existing.allDay;
     const nextStartDate = input.startDate ?? existing.startDate;
     const nextEndDate = input.endDate ?? existing.endDate;
-    const safeEndDate = nextEndDate >= nextStartDate ? nextEndDate : nextStartDate;
+    if (nextEndDate < nextStartDate) {
+      throw new BadRequestException('结束日期不能早于开始日期');
+    }
     const nextStartTime = input.startTime ?? existing.startTime;
     const nextEndTime = input.endTime ?? existing.endTime;
 
-    if (!nextAllDay && safeEndDate === nextStartDate && nextEndTime <= nextStartTime) {
+    if (!nextAllDay && nextEndDate === nextStartDate && nextEndTime <= nextStartTime) {
       throw new BadRequestException('同一天的结束时间必须晚于开始时间');
     }
 
@@ -351,27 +448,45 @@ export class StudioCalendarService {
     existing.location = input.location !== undefined ? input.location.trim() : existing.location;
     existing.allDay = nextAllDay;
     existing.startDate = nextStartDate;
-    existing.endDate = safeEndDate;
+    existing.endDate = nextEndDate;
     existing.startTime = nextStartTime;
     existing.endTime = nextEndTime;
     if (input.reminderMinutes !== undefined) {
       existing.reminderMinutes = input.reminderMinutes;
     }
+
+    const attendeesChanged =
+      input.attendeeUserIds !== undefined || input.attendeeGrades !== undefined;
     if (input.attendeeUserIds !== undefined) {
       existing.attendeeUserIds = dedupeStrings(input.attendeeUserIds);
     }
     if (input.attendeeGrades !== undefined) {
       existing.attendeeGrades = dedupeGrades(input.attendeeGrades);
     }
+
+    // 变更受邀人/年级后，清理已移出受邀名单成员的残留 RSVP 记录
+    if (attendeesChanged && isTargetedStudioEvent(existing) && existing.attendeeResponses) {
+      const members = await this.rosterService.listActive();
+      const memberById = new Map(members.map((m) => [m.userId, m]));
+      const pruned: Record<string, AttendeeResponseStatus> = {};
+      for (const [uid, status] of Object.entries(existing.attendeeResponses)) {
+        const m = memberById.get(uid) ?? { userId: uid, enrollYear: null };
+        if (isMemberInStudioEvent(existing, m)) {
+          pruned[uid] = status;
+        }
+      }
+      existing.attendeeResponses = pruned;
+    }
+
     existing.updatedAt = new Date();
 
     await this.repo.save(existing);
     const dto = toDto(existing);
-    await this.hub.broadcast({ type: 'studio_calendar.updated', payload: dto });
+    await this.emitCalendarRealtime('studio_calendar.updated', dto, [prevScope, existing]);
     return dto;
   }
 
-  /** 成员对某条工作室日程表态（接受 / 待定 / 拒绝），实时广播刷新状态。 */
+  /** 成员对某条工作室日程表态（接受 / 待定 / 拒绝），使用 jsonb_set 原子写入并校验受邀权限。 */
   async rsvp(
     user: AuthUser,
     id: string,
@@ -381,15 +496,41 @@ export class StudioCalendarService {
     if (!existing) {
       throw new NotFoundException('工作室日程不存在或已被删除');
     }
-    const nextResponses: Record<string, AttendeeResponseStatus> = {
-      ...(existing.attendeeResponses ?? {}),
-      [user.userId]: status,
-    };
-    existing.attendeeResponses = nextResponses;
-    existing.updatedAt = new Date();
-    await this.repo.save(existing);
-    const dto = toDto(existing);
-    await this.hub.broadcast({ type: 'studio_calendar.updated', payload: dto });
+
+    if (isTargetedStudioEvent(existing)) {
+      const members = await this.rosterService.listActive();
+      const currentMember = members.find((m) => m.userId === user.userId) ?? {
+        userId: user.userId,
+        enrollYear: null,
+      };
+      if (!isMemberInStudioEvent(existing, currentMember)) {
+        throw new ForbiddenException('您不在该定向日程的受邀范围内，无法提交回复');
+      }
+    }
+
+    const now = new Date();
+    // 使用 PostgreSQL jsonb_set 单键原子更新，避免多人并发 RSVP 互相覆盖（Lost Update）
+    await this.repo
+      .createQueryBuilder()
+      .update(StudioCalendarEventEntity)
+      .set({
+        attendeeResponses: () =>
+          `jsonb_set(COALESCE(attendee_responses, '{}'::jsonb), ARRAY[:rsvpUserId]::text[], to_jsonb(:rsvpStatus::text), true)`,
+        updatedAt: now,
+      })
+      .where('id = :id AND deleted_at IS NULL', {
+        id,
+        rsvpUserId: user.userId,
+        rsvpStatus: status,
+      })
+      .execute();
+
+    const fresh = await this.repo.findOne({ where: { id, deletedAt: IsNull() } });
+    if (!fresh) {
+      throw new NotFoundException('工作室日程不存在或已被删除');
+    }
+    const dto = toDto(fresh);
+    await this.emitCalendarRealtime('studio_calendar.updated', dto, [fresh]);
     return dto;
   }
 
@@ -405,49 +546,64 @@ export class StudioCalendarService {
     existing.deletedAt = new Date();
     existing.updatedAt = new Date();
     await this.repo.save(existing);
-    await this.hub.broadcast({ type: 'studio_calendar.deleted', payload: { id } });
+    await this.emitCalendarRealtime('studio_calendar.deleted', { id }, [existing]);
     return { ok: true, id };
   }
 
-  /** 上报当前成员的课表规则与个人日程公开快照，用于多人约会时查看空闲时间。 */
+  /** 上报当前成员的课表规则与个人日程公开快照（ON CONFLICT 原子 upsert 防并发主键冲突）。 */
   async upsertFreeBusySnapshot(
     user: AuthUser,
     input: UpsertFreeBusySnapshotInput,
   ): Promise<{ ok: true; updatedAt: string }> {
     const now = new Date();
-    const entity = this.busyRepo.create({
-      userId: user.userId,
-      scheduleJson: input.schedule ?? null,
-      personalEventsJson: Array.isArray(input.personalEvents) ? input.personalEvents : [],
-      updatedAt: now,
-    });
-    await this.busyRepo.save(entity);
+    await this.busyRepo.upsert(
+      {
+        userId: user.userId,
+        scheduleJson: input.schedule ?? null,
+        personalEventsJson: Array.isArray(input.personalEvents) ? input.personalEvents : [],
+        updatedAt: now,
+      },
+      ['userId'],
+    );
     return { ok: true, updatedAt: now.toISOString() };
   }
 
-  /** 聚合查询指定日期下所选成员（支持单独 userIds 与按年级 grades 混合）的公开忙闲时间轴。 */
+  /** 聚合查询指定日期下所选成员（至少指定成员或年级，并限制单次最多返回 60 人）的忙闲时间轴。 */
   async queryFreeBusy(input: QueryFreeBusyInput): Promise<{
     date: string;
     members: MemberFreeBusyTimelineDTO[];
   }> {
-    const allMembers = await this.rosterService.listActive();
     const targetUserIds = new Set(dedupeStrings(input.userIds));
     const targetGrades = new Set(dedupeGrades(input.grades));
-    const hasFilter = targetUserIds.size > 0 || targetGrades.size > 0;
+    if (targetUserIds.size === 0 && targetGrades.size === 0) {
+      throw new BadRequestException('请至少选择一名成员或一个年级进行忙闲查询');
+    }
 
-    const selectedMembers = hasFilter
-      ? allMembers.filter(
-          (m) =>
-            targetUserIds.has(m.userId) ||
-            (m.enrollYear !== null && targetGrades.has(m.enrollYear)),
-        )
-      : allMembers;
+    const allMembers = await this.rosterService.listActive();
+    const matchedMembers = allMembers.filter(
+      (m) =>
+        targetUserIds.has(m.userId) ||
+        (m.enrollYear !== null && targetGrades.has(m.enrollYear)),
+    );
 
-    if (selectedMembers.length === 0) {
+    if (matchedMembers.length === 0) {
       return { date: input.date, members: [] };
     }
 
-    const memberIds = selectedMembers.map((m) => m.userId);
+    // 按请求顺序优先排列明确指定的 userIds，其余按花名册顺序排列并执行上限裁剪
+    const orderMap = new Map<string, number>();
+    (input.userIds ?? []).forEach((id, idx) => {
+      if (!orderMap.has(id)) orderMap.set(id, idx);
+    });
+    const orderedMembers = [...matchedMembers]
+      .sort((a, b) => {
+        const oa = orderMap.get(a.userId) ?? Number.MAX_SAFE_INTEGER;
+        const ob = orderMap.get(b.userId) ?? Number.MAX_SAFE_INTEGER;
+        return oa - ob;
+      })
+      .slice(0, MAX_FREEBUSY_MEMBERS);
+
+    const memberIds = orderedMembers.map((m) => m.userId);
     const [snapshots, studioEvents] = await Promise.all([
       this.busyRepo.find({ where: { userId: In(memberIds) } }),
       this.repo
@@ -467,17 +623,6 @@ export class StudioCalendarService {
       ? studioEvents.filter((e) => e.id !== input.excludeEventId)
       : studioEvents;
 
-    // 按请求顺序优先排列明确指定的 userIds，其余按花名册顺序排列
-    const orderMap = new Map<string, number>();
-    (input.userIds ?? []).forEach((id, idx) => {
-      if (!orderMap.has(id)) orderMap.set(id, idx);
-    });
-    const orderedMembers = [...selectedMembers].sort((a, b) => {
-      const oa = orderMap.get(a.userId) ?? Number.MAX_SAFE_INTEGER;
-      const ob = orderMap.get(b.userId) ?? Number.MAX_SAFE_INTEGER;
-      return oa - ob;
-    });
-
     const members: MemberFreeBusyTimelineDTO[] = orderedMembers.map((member) => {
       const snap = snapshotMap.get(member.userId);
       const blocks: FreeBusyBlockDTO[] = [];
@@ -485,17 +630,18 @@ export class StudioCalendarService {
       // 1. 成员课表当日课程
       blocks.push(...expandScheduleSnapshotForDate(snap?.scheduleJson, input.date));
 
-      // 2. 成员个人日程（工作室内公开显示完整标题）
+      // 2. 成员个人日程（按当日精确切分跨天非全天时段）
       for (const ev of snap?.personalEventsJson ?? []) {
         if (ev.startDate <= input.date && ev.endDate >= input.date) {
+          const sliced = sliceEventForDate(ev, input.date);
           blocks.push({
             id: `per:${ev.id}`,
             kind: 'personal',
             title: ev.title,
             location: ev.location || '',
-            allDay: Boolean(ev.allDay || ev.endDate > ev.startDate),
-            startTime: ev.startTime || '09:00',
-            endTime: ev.endTime || '10:00',
+            allDay: sliced.allDay,
+            startTime: sliced.startTime,
+            endTime: sliced.endTime,
             color: ev.color || '#2563EB',
             status: 'accepted',
             meta: ev.calendarName || '个人日程',
@@ -503,9 +649,10 @@ export class StudioCalendarService {
         }
       }
 
-      // 3. 工作室共享 / 受邀日程
+      // 3. 工作室共享 / 受邀日程（按当日精确切分跨天非全天时段）
       for (const ev of filteredStudioEvents) {
         if (!isMemberInStudioEvent(ev, member)) continue;
+        const sliced = sliceEventForDate(ev, input.date);
         const resp =
           ev.attendeeResponses?.[member.userId] ??
           (ev.creatorId === member.userId ? 'accepted' : 'tentative');
@@ -514,9 +661,9 @@ export class StudioCalendarService {
           kind: 'studio',
           title: ev.title,
           location: ev.location || '',
-          allDay: Boolean(ev.allDay || ev.endDate > ev.startDate),
-          startTime: ev.startTime || '09:00',
-          endTime: ev.endTime || '10:00',
+          allDay: sliced.allDay,
+          startTime: sliced.startTime,
+          endTime: sliced.endTime,
           color: '#7C3AED',
           status: resp,
           meta: resp === 'tentative' ? '未回复' : resp === 'declined' ? '已谢绝' : '工作室',

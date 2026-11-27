@@ -83,6 +83,7 @@ export function CourseEditorDialog({
   const [rows, setRows] = useState<MeetingFormRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -415,9 +416,21 @@ export function CourseEditorDialog({
             <Button
               variant="glass"
               destructive
+              loading={deleting}
+              disabled={saving}
               icon={<Trash2 size={14} />}
-              onClick={() => {
-                void onDelete(editingCourse.id).then(() => onOpenChange(false));
+              onClick={async () => {
+                if (deleting || saving) return;
+                setDeleting(true);
+                setError(null);
+                try {
+                  await onDelete(editingCourse.id);
+                  onOpenChange(false);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : '删除课程失败，请稍后重试');
+                } finally {
+                  setDeleting(false);
+                }
               }}
             >
               删除课程
@@ -426,10 +439,10 @@ export function CourseEditorDialog({
             <span />
           )}
           <div className={styles.dialogFooterRight}>
-            <Button variant="glass" onClick={() => onOpenChange(false)}>
+            <Button variant="glass" disabled={saving || deleting} onClick={() => onOpenChange(false)}>
               取消
             </Button>
-            <Button variant="filled" loading={saving} onClick={() => void handleSubmit()}>
+            <Button variant="filled" loading={saving} disabled={deleting} onClick={() => void handleSubmit()}>
               保存课程
             </Button>
           </div>

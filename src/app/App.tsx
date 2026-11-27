@@ -23,7 +23,7 @@ import {
 import { Compass, Gamepad2, GraduationCap, Sparkles, X } from 'lucide-react';
 import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
 import { evaluateFocusReminder } from '@shared/reminders';
-import { evaluateCalendarReminder } from '@shared/calendar';
+import { evaluateCalendarReminders } from '@shared/calendar';
 import { evaluateClassReminder } from '@shared/schedule';
 import { compareOrbitSemver } from '@shared/updateChangelog';
 import { UpdateChangelogDialog } from '@/components/UpdateChangelogDialog';
@@ -465,13 +465,32 @@ export function App(): JSX.Element {
       }
 
       const calState = useCalendarStore.getState();
-      const calNotice = evaluateCalendarReminder({
+      const orbitState = useOrbitStore.getState();
+      const mySubject = orbitState.auth.profile?.subject ?? null;
+      const myEnrollYear =
+        mySubject
+          ? (orbitState.studioMembers.find((m) => m.id === mySubject)?.enrollYear ?? null)
+          : null;
+      // 仅对当前用户受邀且未谢绝的工作室日程发出提醒，避免无关或已谢绝活动打扰
+      const relevantStudioEvents = calState.studioEvents.filter((ev) => {
+        if (mySubject && ev.attendeeResponses?.[mySubject] === 'declined') {
+          return false;
+        }
+        const uIds = ev.attendeeUserIds ?? [];
+        const grds = ev.attendeeGrades ?? [];
+        if (uIds.length === 0 && grds.length === 0) return true;
+        if (mySubject && ev.creatorId === mySubject) return true;
+        if (mySubject && uIds.includes(mySubject)) return true;
+        if (myEnrollYear != null && grds.includes(myEnrollYear)) return true;
+        return false;
+      });
+      const calNotices = evaluateCalendarReminders({
         now: nowDate,
-        events: [...calState.events, ...calState.studioEvents],
+        events: [...calState.events, ...relevantStudioEvents],
         tasks: calState.tasks,
         sentKeys: readSent(),
       });
-      if (calNotice) {
+      for (const calNotice of calNotices) {
         saveSent(calNotice.key);
         void getOrbitClient().system.notify(calNotice.title, calNotice.body);
         notifyToast({

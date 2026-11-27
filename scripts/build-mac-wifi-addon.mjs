@@ -64,23 +64,43 @@ if (!includeDir) {
   process.exit(1);
 }
 
-// 增量跳过：若产物比源码更新且未传 --force，直接复用
+// 默认同时编入 arm64 + x86_64 通用二进制；如需仅编本机架构可传 --host-only
+const hostOnly = process.argv.includes('--host-only');
+const requiredArches = hostOnly
+  ? [process.arch === 'arm64' ? 'arm64' : 'x86_64']
+  : ['arm64', 'x86_64'];
+const archArgs = requiredArches.flatMap((a) => ['-arch', a]);
+
+function hasRequiredArches(filePath, arches) {
+  try {
+    const out = execFileSync('/usr/bin/lipo', ['-archs', filePath], {
+      encoding: 'utf8',
+    }).trim();
+    const present = new Set(out.split(/\s+/).filter(Boolean));
+    return arches.every((a) => present.has(a));
+  } catch {
+    return false;
+  }
+}
+
+// 增量跳过：仅当产物比源码更新、非空、且通过 lipo -archs 确认包含全部目标架构时才复用
 const forceRebuild = process.argv.includes('--force');
 if (!forceRebuild && fs.existsSync(outFile)) {
   const srcStat = fs.statSync(sourceFile);
   const outStat = fs.statSync(outFile);
-  if (outStat.mtimeMs >= srcStat.mtimeMs && outStat.size > 0) {
-    console.log(`[build-mac-wifi-addon] 产物已是最新，跳过重编: ${outFile}`);
+  if (
+    outStat.mtimeMs >= srcStat.mtimeMs &&
+    outStat.size > 0 &&
+    hasRequiredArches(outFile, requiredArches)
+  ) {
+    console.log(
+      `[build-mac-wifi-addon] 产物已是最新且架构匹配 (${requiredArches.join('+')})，跳过重编: ${outFile}`,
+    );
     process.exit(0);
   }
 }
 
 fs.mkdirSync(outDir, { recursive: true });
-
-// 默认同时编入 arm64 + x86_64 通用二进制；如需仅编本机架构可传 --host-only
-const archArgs = process.argv.includes('--host-only')
-  ? ['-arch', process.arch === 'arm64' ? 'arm64' : 'x86_64']
-  : ['-arch', 'arm64', '-arch', 'x86_64'];
 
 const args = [
   '-std=c++17',

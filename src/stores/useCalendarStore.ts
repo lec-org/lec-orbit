@@ -87,6 +87,8 @@ export interface PendingScheduleCreateDraft {
 
 interface CalendarStoreState {
   loaded: boolean;
+  /** 最近一次成功加载快照时对应的账号 subject，防切号串数据上报。 */
+  loadedSubject: string | null;
   loading: boolean;
   categories: CalendarCategory[];
   /** 本地私有日程（个人日程及自定义日历） */
@@ -119,7 +121,9 @@ interface CalendarStoreState {
   showHolidaysLayer: boolean;
   expandCoursesInMonth: boolean;
 
-  loadSnapshot: () => Promise<void>;
+  /** 登出或切换账号时彻底重置日历内存态与模块级自动同步标志。 */
+  reset: () => void;
+  loadSnapshot: (options?: { syncStudio?: boolean; subject?: string | null }) => Promise<void>;
   syncStudioEvents: (options?: { silent?: boolean }) => Promise<void>;
   applyStudioWsEvent: (
     event: OrbitWsEvent,
@@ -166,9 +170,26 @@ interface CalendarStoreState {
 const initialNow = new Date();
 const initialDateStr = formatLocalDate(initialNow);
 let holidayAutoSyncTriggered = false;
+/** 快照加载递增序号，登出/切号时失效在途响应。 */
+let snapshotLoadSeq = 0;
+/** 工作室日程拉取递增序号，防止晚到响应覆盖更新的结果。 */
+let studioSyncSeq = 0;
+/** 工作室日程本地变更/WS 版本号，防止拉取开始后发生新创建或 WS 推送被旧拉取回滚。 */
+let studioMutationVersion = 0;
+
+function buildStudioSyncWindow(): { from: string; to: string } {
+  const now = new Date();
+  const fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 180);
+  const toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 365);
+  return {
+    from: formatLocalDate(fromDate),
+    to: formatLocalDate(toDate),
+  };
+}
 
 export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
   loaded: false,
+  loadedSubject: null,
   loading: false,
   categories: [],
   events: [],
@@ -200,30 +221,66 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
   showHolidaysLayer: true,
   expandCoursesInMonth: false,
 
-  loadSnapshot: async () => {
+  reset: () => {
+    holidayAutoSyncTriggered = false;
+    snapshotLoadSeq += 1;
+    studioSyncSeq += 1;
+    studioMutationVersion += 1;
+    set({
+      loaded: false,
+      loadedSubject: null,
+      loading: false,
+      categories: [],
+      events: [],
+      studioEvents: [],
+      studioSyncing: false,
+      studioServerOnline: false,
+      studioLastError: null,
+      tasks: [],
+      subscriptions: [],
+      subscriptionItems: [],
+      syncingSubscriptionIds: [],
+      pendingCreateDraft: null,
+    });
+  },
+
+  loadSnapshot: async (options) => {
+    const reqSeq = ++snapshotLoadSeq;
+    const shouldSyncStudio = options?.syncStudio ?? !get().loaded;
     set({ loading: true });
     try {
       const client = getOrbitClient();
-      const [snap, cachedStudio] = await Promise.all([
+      const [snap, cachedStudio, authState] = await Promise.all([
         client.calendar.getSnapshot(),
         client.storage.getCache<CalendarEvent[]>(STUDIO_EVENTS_CACHE_KEY).catch(() => null),
+        options?.subject !== undefined
+          ? Promise.resolve({ authenticated: Boolean(options.subject), profile: options.subject ? { subject: options.subject } : null })
+          : client.auth.getState().catch(() => null),
       ]);
+      if (reqSeq !== snapshotLoadSeq) return;
+
+      const resolvedSubject = authState?.authenticated ? (authState.profile?.subject ?? null) : null;
       const cachedStudioList = Array.isArray(cachedStudio?.value) ? cachedStudio.value : null;
 
       set((s) => ({
         loaded: true,
+        loadedSubject: resolvedSubject,
         loading: false,
         categories: snap.categories,
         events: snap.events.map((e) => ({ ...e, source: 'local' as const })),
         studioEvents:
-          s.studioEvents.length > 0 ? s.studioEvents : (cachedStudioList ?? []),
+          s.studioEvents.length > 0 && s.loadedSubject === resolvedSubject
+            ? s.studioEvents
+            : (cachedStudioList ?? []),
         tasks: snap.tasks,
         subscriptions: snap.subscriptions ?? [],
         subscriptionItems: snap.subscriptionItems ?? [],
       }));
 
-      // 后台静默同步工作室全员共享日程
-      void get().syncStudioEvents({ silent: true });
+      // 仅首次加载或显式要求时后台同步工作室共享日程，避免勾选待办等纯本地操作触发远端请求风暴
+      if (shouldSyncStudio) {
+        void get().syncStudioEvents({ silent: true });
+      }
 
       // 首次进入或超过同步周期时，后台静默拉取并持久化订阅日历到本地 SQLite
       if (!holidayAutoSyncTriggered) {
@@ -247,19 +304,31 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
         }
       }
     } catch {
-      set({ loaded: true, loading: false });
+      if (reqSeq !== snapshotLoadSeq) return;
+      // 加载异常时不标记 loaded=true，防止页面把空快照误上报覆盖云端忙闲数据
+      set({ loading: false });
     }
   },
 
   syncStudioEvents: async (options) => {
+    const reqSeq = ++studioSyncSeq;
+    const reqMutationVer = studioMutationVersion;
     set({ studioSyncing: true });
     try {
       const token = await getOrbitClient().auth.getApiToken('orbit');
+      if (reqSeq !== studioSyncSeq) return;
       if (!token) {
-        set({ studioSyncing: false, studioServerOnline: false });
+        set({ studioEvents: [], studioSyncing: false, studioServerOnline: false });
         return;
       }
-      const dtos = await orbitServerApi.listStudioCalendarEvents();
+      const dtos = await orbitServerApi.listStudioCalendarEvents(buildStudioSyncWindow());
+      // 若期间发起了更新的同步、登出切号，或本地已有新创建/WS 推送，丢弃旧快照避免回滚
+      if (reqSeq !== studioSyncSeq || reqMutationVer !== studioMutationVersion) {
+        if (reqSeq === studioSyncSeq) {
+          set({ studioSyncing: false });
+        }
+        return;
+      }
       const mapped = sortEvents(dtos.map(dtoToStudioCalendarEvent));
       set({
         studioEvents: mapped,
@@ -271,6 +340,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
         .storage.setCache(STUDIO_EVENTS_CACHE_KEY, mapped)
         .catch(() => undefined);
     } catch (err) {
+      if (reqSeq !== studioSyncSeq) return;
       const message = err instanceof Error ? err.message : '同步工作室共享日程失败';
       set({
         studioSyncing: false,
@@ -287,6 +357,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
     if (event.type === 'studio_calendar.created') {
       const dto = event.payload as unknown as StudioCalendarEventDTO;
       if (!dto?.id) return true;
+      studioMutationVersion += 1;
       const mapped = dtoToStudioCalendarEvent(dto);
       const next = sortEvents([
         mapped,
@@ -312,6 +383,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
     if (event.type === 'studio_calendar.updated') {
       const dto = event.payload as unknown as StudioCalendarEventDTO;
       if (!dto?.id) return true;
+      studioMutationVersion += 1;
       const mapped = dtoToStudioCalendarEvent(dto);
       const next = sortEvents([
         mapped,
@@ -325,6 +397,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
     if (event.type === 'studio_calendar.deleted') {
       const id = String(event.payload?.id ?? '');
       if (!id) return true;
+      studioMutationVersion += 1;
       const next = get().studioEvents.filter((e) => e.id !== id);
       set({ studioEvents: next });
       void getOrbitClient().storage.setCache(STUDIO_EVENTS_CACHE_KEY, next).catch(() => undefined);
@@ -386,7 +459,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
 
   saveCategory: async (input) => {
     const saved = await getOrbitClient().calendar.saveCategory(input);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
     return saved;
   },
 
@@ -399,7 +472,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
 
   deleteCategory: async (categoryId) => {
     await getOrbitClient().calendar.deleteCategory(categoryId);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
   },
 
   upsertEvent: async (input) => {
@@ -426,10 +499,12 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
         ? await orbitServerApi.updateStudioCalendarEvent(existingStudio.id, payload)
         : await orbitServerApi.createStudioCalendarEvent(payload);
 
+      studioMutationVersion += 1;
+
       // 若是从本地日程迁入工作室日历，删除原本地副本避免重复
       if (existingLocal && !existingStudio) {
         await getOrbitClient().calendar.deleteEvent(existingLocal.id);
-        await get().loadSnapshot();
+        await get().loadSnapshot({ syncStudio: false });
       }
 
       const mapped = dtoToStudioCalendarEvent(dto);
@@ -449,18 +524,20 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
     });
     if (existingStudio) {
       await orbitServerApi.deleteStudioCalendarEvent(existingStudio.id);
+      studioMutationVersion += 1;
       const nextStudio = get().studioEvents.filter((e) => e.id !== existingStudio.id);
       set({ studioEvents: nextStudio });
       void getOrbitClient()
         .storage.setCache(STUDIO_EVENTS_CACHE_KEY, nextStudio)
         .catch(() => undefined);
     }
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
     return { ...saved, source: 'local' };
   },
 
   rsvpStudioEvent: async (eventId, status) => {
     const dto = await orbitServerApi.rsvpStudioCalendarEvent(eventId, status);
+    studioMutationVersion += 1;
     const mapped = dtoToStudioCalendarEvent(dto);
     const next = sortEvents([
       mapped,
@@ -475,18 +552,19 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
     const isStudio = get().studioEvents.some((e) => e.id === eventId);
     if (isStudio) {
       await orbitServerApi.deleteStudioCalendarEvent(eventId);
+      studioMutationVersion += 1;
       const next = get().studioEvents.filter((e) => e.id !== eventId);
       set({ studioEvents: next });
       void getOrbitClient().storage.setCache(STUDIO_EVENTS_CACHE_KEY, next).catch(() => undefined);
       return;
     }
     await getOrbitClient().calendar.deleteEvent(eventId);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
   },
 
   upsertTask: async (input) => {
     const saved = await getOrbitClient().calendar.upsertTask(input);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
     return saved;
   },
 
@@ -497,17 +575,17 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
       ),
     }));
     await getOrbitClient().calendar.toggleTask(taskId, completed);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
   },
 
   deleteTask: async (taskId) => {
     await getOrbitClient().calendar.deleteTask(taskId);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
   },
 
   saveSubscription: async (input) => {
     const result = await getOrbitClient().calendar.saveSubscription(input);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
     return result;
   },
 
@@ -519,7 +597,7 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
     }));
     try {
       const result = await getOrbitClient().calendar.refreshSubscription(subscriptionId);
-      await get().loadSnapshot();
+      await get().loadSnapshot({ syncStudio: false });
       return result;
     } finally {
       set((s) => ({
@@ -539,13 +617,13 @@ export const useCalendarStore = create<CalendarStoreState>((set, get) => ({
 
   deleteSubscription: async (subscriptionId) => {
     await getOrbitClient().calendar.deleteSubscription(subscriptionId);
-    await get().loadSnapshot();
+    await get().loadSnapshot({ syncStudio: false });
   },
 
   importIcsFile: async (input) => {
     const result = await getOrbitClient().calendar.importIcsFile(input);
     if (!result.canceled) {
-      await get().loadSnapshot();
+      await get().loadSnapshot({ syncStudio: false });
     }
     return result;
   },

@@ -7,7 +7,8 @@
  *   工作室内公开展示课表课程、个人日程与工作室日程（含未回复虚线框 / 已谢绝删除线）。
  */
 import { useEffect, useMemo, useRef, type CSSProperties, type JSX } from 'react';
-import { Avatar, Button, layoutDayTimedEvents } from '@lec-space/liquidglass';
+import { Avatar, Button } from '@lec-space/liquidglass';
+import { layoutDayTimedEvents } from '@shared/overlapLayout';
 import {
   AlertCircle,
   CalendarClock,
@@ -71,13 +72,15 @@ export function AttendeeTimelinePanel({
   const selectedEndMin = Math.max(selectedStartMin + 15, parseHmToMinutes(endTime));
   const durationMin = Math.max(30, selectedEndMin - selectedStartMin);
 
-  // 打开面板或切换日期时，自动滚到选中时间带前 1.5 小时（默认 08:00 附近）
+  // 打开面板、切换日期或异步成员列表首次加载完成后，自动滚到选中时间带前 1.5 小时（默认 08:00 附近）
+  const hasMembers = members.length > 0;
   useEffect(() => {
+    if (!hasMembers) return;
     const el = scrollRef.current;
     if (!el) return;
     const anchorMin = allDay ? 8 * 60 : Math.max(0, selectedStartMin - 90);
     el.scrollTop = (anchorMin / 60) * HOUR_HEIGHT;
-  }, [date, allDay]);
+  }, [date, allDay, hasMembers]);
 
   const dateLabel = useMemo(() => {
     const d = parseLocalDate(date);

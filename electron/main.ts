@@ -454,6 +454,7 @@ function registerIpcHandlers(): void {
     const scope = currentScopeKey();
     const state = await authService.signOut();
     localDb.clearScope(scope);
+    await swpuScheduleImporter?.resetForSignOut();
     return state;
   });
 
@@ -926,16 +927,50 @@ app.on('activate', () => {
   windowManager?.showMainWindow();
 });
 
-// 仅针对西柚教务导入窗的 *.swpu.edu.cn 放行证书链异常（兼容校园内网或本机代理）
-app.on('certificate-error', (event, wc, url, _error, _cert, callback) => {
+/** 本次运行中已由用户显式确认允许的教务非认证域名证书例外集合。 */
+const approvedSwpuTlsHosts = new Set<string>();
+const SWPU_AUTH_HOST_RE = /^(?:sso|auth|ids|cas|login)(?:[-.].*)?\.swpu\.edu\.cn$/i;
+
+// 严禁对统一身份认证域（sso.swpu.edu.cn 等）静默放行 TLS 证书错误；其余校内教务子域需经用户显式确认
+app.on('certificate-error', (event, wc, url, error, cert, callback) => {
   try {
-    const host = new URL(url).hostname;
-    if (
-      swpuScheduleImporter?.ownsWebContents(wc) &&
-      (host === 'swpu.edu.cn' || host.endsWith('.swpu.edu.cn'))
-    ) {
+    const host = new URL(url).hostname.toLowerCase();
+    const isSwpuSubdomain = host === 'swpu.edu.cn' || host.endsWith('.swpu.edu.cn');
+    if (swpuScheduleImporter?.ownsWebContents(wc) && isSwpuSubdomain) {
+      if (SWPU_AUTH_HOST_RE.test(host)) {
+        console.warn(`[orbit:tls] 拒绝静默放行认证域名证书错误: host=${host} error=${error}`);
+        callback(false);
+        return;
+      }
+      if (approvedSwpuTlsHosts.has(host)) {
+        event.preventDefault();
+        callback(true);
+        return;
+      }
       event.preventDefault();
-      callback(true);
+      const ownerWin = windowManager?.getMainWindow();
+      const promptOpts: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: '教务站点证书校验异常',
+        message: `目标教务站点 ${host} 的 HTTPS 证书未通过系统校验（${error}）。`,
+        detail: `证书主体：${cert?.subjectName || '未知'}\n签发方：${cert?.issuerName || '未知'}\n若你在公共 Wi-Fi 下看到此提示，可能存在中间人劫持风险，建议取消连接。`,
+        buttons: ['取消连接（推荐）', '仅本次信任并继续'],
+        defaultId: 0,
+        cancelId: 0,
+      };
+      const ask = ownerWin
+        ? dialog.showMessageBox(ownerWin, promptOpts)
+        : dialog.showMessageBox(promptOpts);
+      void ask
+        .then((res) => {
+          if (res.response === 1) {
+            approvedSwpuTlsHosts.add(host);
+            callback(true);
+          } else {
+            callback(false);
+          }
+        })
+        .catch(() => callback(false));
       return;
     }
   } catch {
@@ -1133,7 +1168,13 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers();
 
+  let lastAuthSubject = authService.getState().profile?.subject ?? null;
   authService.onStateChanged((state) => {
+    const nextSubject = state.authenticated ? (state.profile?.subject ?? null) : null;
+    if (!state.authenticated || (lastAuthSubject && nextSubject && lastAuthSubject !== nextSubject)) {
+      void swpuScheduleImporter?.resetForSignOut();
+    }
+    lastAuthSubject = nextSubject;
     windowManager.onAuthSessionUpdated(state.authenticated);
     windowManager.updateFloatingPunchSummary({
       ...windowManager.getFloatingState(),

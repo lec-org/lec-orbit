@@ -14,7 +14,6 @@ import {
   CloseButton,
   Dialog,
   Empty,
-  layoutOverlappingIntervals,
   Menu,
   ScheduleCalendar,
   SegmentedControl,
@@ -22,10 +21,10 @@ import {
   Tag,
   type MenuEntry,
   type ScheduleCalendarView,
-  type ScheduleDayBadge,
   type ScheduleEvent,
   type ScheduleSlotSelection,
 } from '@lec-space/liquidglass';
+import { layoutOverlappingIntervals } from '@shared/overlapLayout';
 import {
   Bell,
   BellOff,
@@ -96,6 +95,11 @@ import styles from './Schedule.module.css';
 
 const SLOT_ROW_HEIGHT = 56;
 
+interface LocalScheduleDayBadge {
+  label: string;
+  tone?: 'holiday' | 'workday' | 'neutral';
+}
+
 interface RenderMeetingCard {
   course: ScheduleCourseWithMeetings;
   meeting: ScheduleMeeting;
@@ -111,6 +115,8 @@ export function SchedulePage(): JSX.Element {
   const popOverlay = useOrbitStore((s) => s.popOverlay);
 
   // ── 课表 Store ──
+  const scheduleLoaded = useScheduleStore((s) => s.loaded);
+  const scheduleLoadedSubject = useScheduleStore((s) => s.loadedSubject);
   const schedules = useScheduleStore((s) => s.schedules);
   const timetables = useScheduleStore((s) => s.timetables);
   const activeDetail = useScheduleStore((s) => s.activeDetail);
@@ -130,6 +136,8 @@ export function SchedulePage(): JSX.Element {
   const saveTimetable = useScheduleStore((s) => s.saveTimetable);
 
   // ── 统一日历（个人日程 + 工作室共享日程 + 任务 + 图层 + 订阅日历）Store ──
+  const calendarLoaded = useCalendarStore((s) => s.loaded);
+  const calendarLoadedSubject = useCalendarStore((s) => s.loadedSubject);
   const categories = useCalendarStore((s) => s.categories);
   const localEvents = useCalendarStore((s) => s.events);
   const studioEvents = useCalendarStore((s) => s.studioEvents);
@@ -222,54 +230,84 @@ export function SchedulePage(): JSX.Element {
     setItemDialogOpen(true);
   }, [pendingCreateDraft, consumePendingCreateDraft, setSelectedDate]);
 
-  // 自动防抖上报当前成员的公开课表规则与个人日程快照，供他人创建日程时在右侧实时查看空余时间
+  // 自动防抖上报当前成员的公开课表规则与近期脱敏个人忙碌时段，供他人创建日程时在右侧实时查看空余时间：
+  // 1. 仅当课表与日历 Store 均已成功加载且归属当前登录账号 subject 时才允许上报，严防切号串号或空快照覆盖；
+  // 2. 跳过已隐藏日历分类（visible === false），个人日程默认脱敏为「忙碌」仅共享时段不泄露私有标题与地点；
+  // 3. 按 [today - 7d, today + 90d] 近期滑动窗口过滤再裁剪，并对 courses/meetings/slots 对齐后端上限防 400。
   useEffect(() => {
-    if (!auth.authenticated) return;
+    const currentSubject = auth.profile?.subject ?? null;
+    if (
+      !auth.authenticated ||
+      !currentSubject ||
+      !scheduleLoaded ||
+      !calendarLoaded ||
+      scheduleLoadedSubject !== currentSubject ||
+      calendarLoadedSubject !== currentSubject
+    ) {
+      return;
+    }
     const catById = new Map(categories.map((c) => [c.id, c]));
     const timer = window.setTimeout(() => {
       const schedulePayload = activeDetail
         ? {
-            scheduleName: activeDetail.schedule.name,
+            scheduleName: activeDetail.schedule.name.slice(0, 100),
             startDate: activeDetail.schedule.startDate,
-            totalWeeks: activeDetail.schedule.totalWeeks,
+            totalWeeks: Math.max(1, Math.min(30, activeDetail.schedule.totalWeeks)),
             weekStartDay: activeDetail.schedule.weekStartDay,
-            slots: activeDetail.timetable.slots.map((s) => ({
+            slots: activeDetail.timetable.slots.slice(0, 30).map((s) => ({
               section: s.section,
               startTime: s.startTime,
               endTime: s.endTime,
             })),
-            courses: activeDetail.courses.map((c) => ({
-              id: c.id,
-              name: c.name,
-              color: c.color,
-              meetings: c.meetings.map((m) => ({
-                id: m.id,
+            courses: activeDetail.courses.slice(0, 120).map((c) => ({
+              id: c.id.slice(0, 100),
+              name: c.name.slice(0, 120),
+              color: (c.color || '#6366F1').slice(0, 32),
+              meetings: c.meetings.slice(0, 30).map((m) => ({
+                id: m.id.slice(0, 100),
                 dayOfWeek: m.dayOfWeek,
-                startSection: m.startSection,
-                endSection: m.endSection,
-                weeks: m.weeks,
-                location: m.location,
-                teacher: m.teacher,
+                startSection: Math.max(1, Math.min(24, m.startSection)),
+                endSection: Math.max(1, Math.min(24, m.endSection)),
+                weeks: m.weeks.filter((w) => w >= 1 && w <= 30).slice(0, 30),
+                location: (m.location || '').slice(0, 120),
+                teacher: (m.teacher || '').slice(0, 80),
               })),
             })),
           }
         : null;
 
-      const personalEvents = localEvents.slice(0, 400).map((ev) => {
-        const cat = catById.get(ev.calendarId);
-        return {
-          id: ev.id,
-          title: ev.title,
-          location: ev.location,
-          allDay: ev.allDay,
-          startDate: ev.startDate,
-          endDate: ev.endDate,
-          startTime: ev.startTime,
-          endTime: ev.endTime,
-          color: cat?.color ?? '#2563EB',
-          calendarName: cat?.name ?? '个人日程',
-        };
-      });
+      const now = new Date();
+      const winStart = formatLocalDate(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7),
+      );
+      const winEnd = formatLocalDate(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() + 90),
+      );
+
+      const personalEvents = localEvents
+        .filter((ev) => {
+          const cat = catById.get(ev.calendarId);
+          // 跳过用户已隐藏的私有日历分类，且仅上报近期滑动窗口内活跃日程
+          if (cat && !cat.visible) return false;
+          return ev.endDate >= winStart && ev.startDate <= winEnd;
+        })
+        .slice(0, 400)
+        .map((ev) => {
+          const cat = catById.get(ev.calendarId);
+          return {
+            id: ev.id.slice(0, 100),
+            // 个人私有日程默认仅共享忙碌时段，避免无提示明文上报私人标题与地点
+            title: '忙碌',
+            location: '',
+            allDay: ev.allDay,
+            startDate: ev.startDate,
+            endDate: ev.endDate,
+            startTime: ev.startTime,
+            endTime: ev.endTime,
+            color: (cat?.color ?? '#2563EB').slice(0, 32),
+            calendarName: '个人日程',
+          };
+        });
 
       void orbitServerApi
         .upsertFreeBusySnapshot({ schedule: schedulePayload, personalEvents })
@@ -277,7 +315,17 @@ export function SchedulePage(): JSX.Element {
     }, 1400);
 
     return () => window.clearTimeout(timer);
-  }, [auth.authenticated, activeDetail, localEvents, categories]);
+  }, [
+    auth.authenticated,
+    auth.profile?.subject,
+    scheduleLoaded,
+    scheduleLoadedSubject,
+    calendarLoaded,
+    calendarLoadedSubject,
+    activeDetail,
+    localEvents,
+    categories,
+  ]);
 
   const anyModalOpen =
     quickPanelOpen ||
@@ -417,7 +465,7 @@ export function SchedulePage(): JSX.Element {
   const { holidayOffDateSet, holidayWorkDateSet, dayBadges } = useMemo(() => {
     const offSet = new Set<string>(activeDetail?.schedule.holidays ?? []);
     const workSet = new Set<string>();
-    const badges: Record<string, ScheduleDayBadge> = {};
+    const badges: Record<string, LocalScheduleDayBadge> = {};
     for (const d of activeDetail?.schedule.holidays ?? []) {
       badges[d] = { label: '休', tone: 'holiday' };
     }
@@ -1465,7 +1513,7 @@ export function SchedulePage(): JSX.Element {
                     weekStartsOn={activeDetail?.schedule.weekStartDay === 7 ? 0 : 1}
                     showSidebar={false}
                     maxEventsPerDay={4}
-                    dayBadges={dayBadges}
+                    {...({ dayBadges } as Record<string, unknown>)}
                     onSlotClick={handleSlotClick}
                     renderEventPopover={renderEventPopover}
                   />

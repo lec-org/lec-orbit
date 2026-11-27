@@ -4,7 +4,7 @@ export type AttendeeResponseStatus = 'accepted' | 'tentative' | 'declined';
 
 /** 工作室全员/多人共享日程（支持软删除、全天/跨天、按年级或指定成员邀请与回复状态）。 */
 @Entity({ name: 'studio_calendar_events' })
-@Index('idx_studio_calendar_events_date', ['startDate', 'endDate'])
+@Index('idx_studio_calendar_events_date', ['startDate', 'endDate'], { where: '"deleted_at" IS NULL' })
 export class StudioCalendarEventEntity {
   @PrimaryColumn({ name: 'id', type: 'uuid' })
   id: string;
@@ -63,7 +63,7 @@ export class StudioCalendarEventEntity {
   @Column({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
-  @Index()
+  @Index('idx_studio_calendar_events_deleted_at')
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;
 }

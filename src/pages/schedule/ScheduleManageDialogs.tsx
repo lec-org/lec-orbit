@@ -723,17 +723,50 @@ export function ScheduleListDialog({
 }: ScheduleListDialogProps): JSX.Element {
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setConfirmDeleteId(null);
+      setDeletingId(null);
+    }
+  }, [open]);
 
   const handleCreate = async () => {
     const clean = newName.trim();
-    if (!clean) return;
+    if (!clean || busy) return;
     setBusy(true);
     try {
       await onCreate(clean);
       setNewName('');
       notifyToast({ tone: 'success', title: `已新建课表「${clean}」` });
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '新建课表失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleDeleteSchedule = async (item: ScheduleSummary) => {
+    if (deletingId) return;
+    setDeletingId(item.id);
+    try {
+      await onDelete(item.id);
+      setConfirmDeleteId(null);
+      notifyToast({ tone: 'info', title: `已删除课表「${item.name}」` });
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '删除课表失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -788,17 +821,36 @@ export function ScheduleListDialog({
                     切换
                   </Button>
                 )}
-                <Button
-                  variant="glass"
-                  size="small"
-                  destructive
-                  icon={<Trash2 size={13} />}
-                  onClick={() => {
-                    void onDelete(item.id).then(() =>
-                      notifyToast({ tone: 'info', title: `已删除课表「${item.name}」` }),
-                    );
-                  }}
-                />
+                {confirmDeleteId === item.id ? (
+                  <>
+                    <Button
+                      variant="glass"
+                      size="small"
+                      disabled={deletingId === item.id}
+                      onClick={() => setConfirmDeleteId(null)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      variant="filled"
+                      size="small"
+                      destructive
+                      loading={deletingId === item.id}
+                      onClick={() => void handleDeleteSchedule(item)}
+                    >
+                      确认删除
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="glass"
+                    size="small"
+                    destructive
+                    disabled={Boolean(deletingId)}
+                    icon={<Trash2 size={13} />}
+                    onClick={() => setConfirmDeleteId(item.id)}
+                  />
+                )}
               </div>
             </div>
           ))}

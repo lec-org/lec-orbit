@@ -404,24 +404,30 @@ export interface CalendarReminderNotice {
   body: string;
 }
 
-/** 评估当前分钟内是否有需要发出的日程提醒或定时任务截止提醒 */
-export function evaluateCalendarReminder(
+/**
+ * 评估当前分钟内所有需要发出的日程提醒或定时任务截止提醒：
+ * - 跨天日程仅在开始日（startDate === todayStr）触发提醒，避免次日重复误报；
+ * - 返回当前分钟全部待发提醒列表，避免同分钟多条「准时提醒」被漏报。
+ */
+export function evaluateCalendarReminders(
   input: CalendarReminderInput,
-): CalendarReminderNotice | null {
+): CalendarReminderNotice[] {
   const { now, events, tasks, sentKeys } = input;
   const todayStr = formatLocalDate(now);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const notices: CalendarReminderNotice[] = [];
 
   for (const ev of events) {
     if (ev.allDay || ev.reminderMinutes == null) continue;
-    if (!eventCoversDate(ev, todayStr)) continue;
+    // 仅在日程开始日提醒，防止跨天日程在次日同一时间再次误发提醒
+    if (ev.startDate !== todayStr) continue;
     const startMin = timeToMinutes(ev.startTime);
     if (startMin == null) continue;
     const diff = startMin - nowMinutes;
     if (diff >= 0 && diff <= ev.reminderMinutes) {
       const key = `event:${ev.id}:${todayStr}:${ev.startTime}`;
       if (sentKeys.has(key)) continue;
-      return {
+      notices.push({
         key,
         kind: 'event',
         title: diff === 0 ? `日程开始：${ev.title}` : `${diff} 分钟后日程：${ev.title}`,
@@ -431,7 +437,7 @@ export function evaluateCalendarReminder(
         ]
           .filter(Boolean)
           .join(' · '),
-      };
+      });
     }
   }
 
@@ -444,14 +450,21 @@ export function evaluateCalendarReminder(
     if (diff >= 0 && diff <= task.reminderMinutes) {
       const key = `task:${task.id}:${todayStr}:${task.dueTime}`;
       if (sentKeys.has(key)) continue;
-      return {
+      notices.push({
         key,
         kind: 'task',
         title: diff === 0 ? `任务截止：${task.title}` : `任务即将截止（${diff} 分钟后）：${task.title}`,
         body: `截止时间 ${task.dueTime}${task.description ? ` · ${task.description.slice(0, 60)}` : ''}`,
-      };
+      });
     }
   }
 
-  return null;
+  return notices;
+}
+
+/** 兼容单条提醒读取接口，默认返回当前分钟第一条待发提醒。 */
+export function evaluateCalendarReminder(
+  input: CalendarReminderInput,
+): CalendarReminderNotice | null {
+  return evaluateCalendarReminders(input)[0] ?? null;
 }

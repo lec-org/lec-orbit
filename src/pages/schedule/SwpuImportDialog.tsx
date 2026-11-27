@@ -102,14 +102,19 @@ export function SwpuImportDialog({ open, onOpenChange }: SwpuImportDialogProps):
     }
     setShareBusy(true);
     setShareError(null);
-    const res = await importShareJson(trimmed);
-    setShareBusy(false);
-    if (res.ok) {
-      setShareText('');
-      onOpenChange(false);
-      notifyToast({ tone: 'success', title: '已导入好友分享课表' });
-    } else {
-      setShareError(res.message || '分享内容解析失败');
+    try {
+      const res = await importShareJson(trimmed);
+      if (res.ok) {
+        setShareText('');
+        onOpenChange(false);
+        notifyToast({ tone: 'success', title: '已导入好友分享课表' });
+      } else {
+        setShareError(res.message || '分享内容解析失败');
+      }
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : '导入分享课表时发生异常');
+    } finally {
+      setShareBusy(false);
     }
   };
 

@@ -340,7 +340,7 @@ export function inferTermStartDate(
   return formatLocalDate(thisWeekStart);
 }
 
-/** 根据开学第一周第一天计算某天属于第几周（支持返回 <= 0 或 > totalWeeks，由调用方按需 clamp） */
+/** 根据开学第一周第一天计算某天属于第几周（基于 Date.UTC 纯日期差免疫 DST 夏令时偏移） */
 export function computeWeekFromStartDate(
   startDate: string,
   now: Date = new Date(),
@@ -349,8 +349,13 @@ export function computeWeekFromStartDate(
   const start = parseLocalDate(startDate);
   if (Number.isNaN(start.getTime())) return 1;
   const alignedStart = getStartOfWeekLocal(start, weekStartDay);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffDays = Math.floor((today.getTime() - alignedStart.getTime()) / 86_400_000);
+  const alignedUtc = Date.UTC(
+    alignedStart.getFullYear(),
+    alignedStart.getMonth(),
+    alignedStart.getDate(),
+  );
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.floor((todayUtc - alignedUtc) / 86_400_000);
   return Math.floor(diffDays / 7) + 1;
 }
 
@@ -748,6 +753,16 @@ export function generateScheduleIcs(detail: ScheduleDetail): string {
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${escapeIcsText(schedule.name)}`,
     'X-WR-TIMEZONE:Asia/Shanghai',
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Shanghai',
+    'X-LIC-LOCATION:Asia/Shanghai',
+    'BEGIN:STANDARD',
+    'TZOFFSETFROM:+0800',
+    'TZOFFSETTO:+0800',
+    'TZNAME:CST',
+    'DTSTART:19700101T000000',
+    'END:STANDARD',
+    'END:VTIMEZONE',
   ];
 
   let seq = 0;

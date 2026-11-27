@@ -1,5 +1,5 @@
 /** 工作室成员个人信息卡弹窗：聚合 LecSSO 公开资料、第三方绑定（GitHub / 飞书）、在岗状态、本周考勤排名与双人日程对比视图。 */
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { Avatar, Button, Dialog, Tag } from '@lec-space/liquidglass';
 import {
   ArrowUpRight,
@@ -475,12 +475,19 @@ export function MemberProfileDialog({ seed, onClose }: MemberProfileDialogProps)
     ],
   );
 
+  // 用 ref 持有最新本地时间轴构建器，避免 60s 轮询或 WS 刷新导致 queryFreeBusy 频繁重发
+  const buildLocalPairTimelinesRef = useRef(buildLocalPairTimelines);
+  buildLocalPairTimelinesRef.current = buildLocalPairTimelines;
+  const hasSeed = Boolean(seed);
+  const resolvedIsSelf = Boolean(resolved?.isSelf);
+  const hasResolved = Boolean(resolved);
+
   // 拉取「Ta」和「我」的双人日程对比数据
   useEffect(() => {
-    if (!seed || !resolved || view !== 'schedule') return;
+    if (!hasSeed || !hasResolved || view !== 'schedule') return;
     const queryIds = Array.from(
       new Set([
-        ...(!resolved.isSelf && targetUserId ? [targetUserId] : []),
+        ...(!resolvedIsSelf && targetUserId ? [targetUserId] : []),
         ...(myUserId ? [myUserId] : []),
       ]),
     );
@@ -495,7 +502,7 @@ export function MemberProfileDialog({ seed, onClose }: MemberProfileDialogProps)
       .queryFreeBusy({ date: scheduleDate, userIds: queryIds })
       .then((res) => {
         if (cancelled) return;
-        const localPair = buildLocalPairTimelines(scheduleDate);
+        const localPair = buildLocalPairTimelinesRef.current(scheduleDate);
         const localMe = myUserId ? localPair.find((m) => m.userId === myUserId) : undefined;
         const mapped = (res.members ?? []).map((m) => {
           if (myUserId && m.userId === myUserId) {
@@ -518,7 +525,7 @@ export function MemberProfileDialog({ seed, onClose }: MemberProfileDialogProps)
       })
       .catch(() => {
         if (cancelled) return;
-        setTimelineMembers(buildLocalPairTimelines(scheduleDate));
+        setTimelineMembers(buildLocalPairTimelinesRef.current(scheduleDate));
         setTimelineFallback(
           '当前为本地预览模式（已实时展示你的本机课表与工作室共享日程，服务端升级后自动拉取对方课表）',
         );
@@ -531,13 +538,13 @@ export function MemberProfileDialog({ seed, onClose }: MemberProfileDialogProps)
       cancelled = true;
     };
   }, [
-    seed,
-    resolved,
+    hasSeed,
+    hasResolved,
+    resolvedIsSelf,
     view,
     scheduleDate,
     targetUserId,
     myUserId,
-    buildLocalPairTimelines,
     reloadTick,
   ]);
 

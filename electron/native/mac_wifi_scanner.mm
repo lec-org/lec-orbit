@@ -40,16 +40,22 @@ struct ScanWorkContext {
 
 static CLLocationManager* gLocationManager = nil;
 
-/** 查询当前进程在 macOS CoreLocation 下的定位授权状态。 */
-std::string GetLocationAuthStatusString() {
+/**
+ * 在主线程上初始化 CoreLocation 并查询定位授权状态（按需触发一次原生授权弹窗）。
+ * 必须在主线程调用，严禁在 libuv 后台线程访问 gLocationManager 或初始化 CLLocationManager。
+ */
+std::string EnsureAndReadLocationAuthOnMainThread(bool requestIfNotDetermined) {
   @autoreleasepool {
+    if (gLocationManager == nil) {
+      gLocationManager = [[CLLocationManager alloc] init];
+    }
+
     CLAuthorizationStatus status = kCLAuthorizationStatusNotDetermined;
     if (@available(macOS 11.0, *)) {
-      if (gLocationManager != nil) {
+      status = gLocationManager.authorizationStatus;
+      if (requestIfNotDetermined && status == kCLAuthorizationStatusNotDetermined) {
+        [gLocationManager requestWhenInUseAuthorization];
         status = gLocationManager.authorizationStatus;
-      } else {
-        CLLocationManager* mgr = [[CLLocationManager alloc] init];
-        status = mgr.authorizationStatus;
       }
     } else {
 #pragma clang diagnostic push
@@ -70,22 +76,6 @@ std::string GetLocationAuthStatusString() {
         return "not_determined";
     }
   }
-}
-
-/** 若定位授权尚未决定，在主线程队列触发一次原生定位权限弹窗（幂等安全）。 */
-void EnsureLocationPermissionRequested() {
-  dispatch_async(dispatch_get_main_queue(), ^{
-    @autoreleasepool {
-      if (gLocationManager == nil) {
-        gLocationManager = [[CLLocationManager alloc] init];
-      }
-      if (@available(macOS 11.0, *)) {
-        if (gLocationManager.authorizationStatus == kCLAuthorizationStatusNotDetermined) {
-          [gLocationManager requestWhenInUseAuthorization];
-        }
-      }
-    }
-  });
 }
 
 void ExtractNetworks(NSSet<CWNetwork*>* nets, std::vector<WifiNetworkItem>& out, int& totalCount) {
@@ -119,15 +109,10 @@ bool HasAnyVisibleBssid(const std::vector<WifiNetworkItem>& list) {
   return false;
 }
 
-/** 后台线程执行：优先利用系统毫秒级 cachedScanResults，按需执行实时全信道扫描。 */
+/** 后台线程执行：仅执行 CoreWLAN 缓存读取与全信道扫描，不接触 CoreLocation 对象。 */
 void ExecuteScanWork(napi_env /*env*/, void* rawData) {
   auto* ctx = static_cast<ScanWorkContext*>(rawData);
   @autoreleasepool {
-    ctx->authStatus = GetLocationAuthStatusString();
-    if (ctx->authStatus == "not_determined") {
-      EnsureLocationPermissionRequested();
-    }
-
     CWWiFiClient* client = [CWWiFiClient sharedWiFiClient];
     CWInterface* iface = client ? [client interface] : nil;
     if (iface == nil) {
@@ -278,6 +263,8 @@ napi_value ScanWifi(napi_env env, napi_callback_info info) {
 
   auto* ctx = new ScanWorkContext();
   ctx->forceScan = forceScan;
+  // 在 Electron 主线程先读取并按需触发 CoreLocation 授权，避免后台线程池数据竞争
+  ctx->authStatus = EnsureAndReadLocationAuthOnMainThread(true);
 
   napi_value promise = nullptr;
   napi_create_promise(env, &ctx->deferred, &promise);
@@ -298,8 +285,7 @@ napi_value ScanWifi(napi_env env, napi_callback_info info) {
 }
 
 napi_value RequestLocationPermission(napi_env env, napi_callback_info /*info*/) {
-  EnsureLocationPermissionRequested();
-  const std::string status = GetLocationAuthStatusString();
+  const std::string status = EnsureAndReadLocationAuthOnMainThread(true);
   napi_value out = nullptr;
   napi_create_string_utf8(env, status.c_str(), status.size(), &out);
   return out;

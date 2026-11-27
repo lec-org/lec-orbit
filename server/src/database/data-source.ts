@@ -62,8 +62,7 @@ import { AddMiniAppFunctions1764300000000 } from './migrations/1764300000000-Add
 import { AddOrbitMemberProfileFields1764400000000 } from './migrations/1764400000000-AddOrbitMemberProfileFields.js';
 import { AddMiniAppEngagementTables1764500000000 } from './migrations/1764500000000-AddMiniAppEngagementTables.js';
 import { AddMiniAppPlayDaily1764600000000 } from './migrations/1764600000000-AddMiniAppPlayDaily.js';
-import { AddStudioCalendarEvents1764700000000 } from './migrations/1764700000000-AddStudioCalendarEvents.js';
-import { AddStudioCalendarAttendeesAndFreeBusy1764800000000 } from './migrations/1764800000000-AddStudioCalendarAttendeesAndFreeBusy.js';
+import { AddStudioCalendarAndFreeBusy1764900000000 } from './migrations/1764900000000-AddStudioCalendarAndFreeBusy.js';
 
 export const ALL_ENTITIES = [
   OrbitMemberEntity,
@@ -121,8 +120,7 @@ export const ALL_MIGRATIONS = [
   AddOrbitMemberProfileFields1764400000000,
   AddMiniAppEngagementTables1764500000000,
   AddMiniAppPlayDaily1764600000000,
-  AddStudioCalendarEvents1764700000000,
-  AddStudioCalendarAttendeesAndFreeBusy1764800000000,
+  AddStudioCalendarAndFreeBusy1764900000000,
 ];
 
 export function buildTypeOrmOptions(cfg: AppConfig): DataSourceOptions {
