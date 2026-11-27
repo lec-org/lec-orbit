@@ -2,9 +2,11 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 22px 26px;
+  padding: 18px 22px 18px;
   height: 100%;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .header {
@@ -13,6 +15,7 @@
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .headerLeft {
@@ -80,12 +83,14 @@
   flex-wrap: wrap;
 }
 
-/* 双栏高密度总览网格 */
+/* 双栏等高总览网格：宽屏下左右两栏严格等高，内部各自独立滚动 */
 .boardGrid {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(340px, 0.95fr) minmax(380px, 1.25fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .rightColumn {
@@ -93,6 +98,8 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 
 .panel {
@@ -107,9 +114,16 @@
   min-width: 0;
 }
 
-.rankingPanel,
+.rankingPanel {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .membersPanel {
-  min-height: 220px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panelHeadRow {
@@ -224,6 +238,14 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+
+.rankList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 
 .rankItem {
@@ -491,6 +513,11 @@
 }
 
 .gradeGroups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -695,7 +722,23 @@
 }
 
 @media (max-width: 960px) {
+  .page {
+    overflow-y: auto;
+  }
   .boardGrid {
+    flex: none;
     grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .rightColumn,
+  .rankingPanel,
+  .membersPanel {
+    height: auto;
+    overflow: visible;
+  }
+  .rankList,
+  .gradeGroups {
+    overflow-y: visible;
+    padding-right: 0;
   }
 }
