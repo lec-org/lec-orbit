@@ -83,7 +83,10 @@ export type TitleIconKey =
   | 'library'
   | 'book-open'
   | 'graduation-cap'
-  | 'sparkles';
+  | 'sparkles'
+  | 'timer'
+  | 'battery-low'
+  | 'alert-triangle';
 
 export type TitleThemeKey =
   | 'amber'

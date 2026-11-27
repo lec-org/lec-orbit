@@ -76,11 +76,11 @@ describe('LecPunch 融合模块核心规则与狂热时段判定', () => {
     expect(verifyMemberKey(key + 'x', 'test-secret')).toBeNull();
   });
 
-  it('卡池（21 张）与称号目录（23 项）定义完整无重复 ID', () => {
+  it('卡池（21 张）与称号目录（26 项）定义完整无重复 ID', () => {
     expect(CARD_CATALOG).toHaveLength(21);
     expect(new Set(CARD_CATALOG.map((c) => c.id)).size).toBe(21);
-    expect(TITLE_CATALOG).toHaveLength(23);
-    expect(new Set(TITLE_CATALOG.map((t) => t.id)).size).toBe(23);
+    expect(TITLE_CATALOG).toHaveLength(26);
+    expect(new Set(TITLE_CATALOG.map((t) => t.id)).size).toBe(26);
     const ids = new Set(TITLE_CATALOG.map((t) => t.id));
     for (const expectedId of [
       'punch-star',
@@ -96,6 +96,7 @@ describe('LecPunch 融合模块核心规则与狂热时段判定', () => {
       'lovesick',
       'purple-egg',
       'punch-god',
+      'mcgrady-time',
       'contributor-king',
       'collection-king',
       'gamble-king',
@@ -104,8 +105,10 @@ describe('LecPunch 融合模块核心规则与狂热时段判定', () => {
       'almost-perfect',
       'lancer-luck-e',
       'card-collector',
+      'uneasy',
       'quit-gambling',
       'almost-gone',
+      'low-stamina',
     ]) {
       expect(ids.has(expectedId)).toBe(true);
     }

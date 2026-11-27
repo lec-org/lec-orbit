@@ -1,4 +1,4 @@
-/** LEC 工作室考勤与娱乐称号目录（23 个自动判定称号：原 11 个基础称号 + 12 个 Orbit 扩展称号）。 */
+/** LEC 工作室考勤与娱乐称号目录（26 个自动判定称号：原 11 个基础称号 + 15 个 Orbit 扩展称号）。 */
 
 export type TitleCategory = 'honor' | 'routine' | 'fun' | 'debuff';
 
@@ -24,7 +24,10 @@ export type TitleIconKey =
   | 'library'
   | 'book-open'
   | 'graduation-cap'
-  | 'sparkles';
+  | 'sparkles'
+  | 'timer'
+  | 'battery-low'
+  | 'alert-triangle';
 
 export type TitleThemeKey =
   | 'amber'
@@ -85,7 +88,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'punch-god',
     name: '神',
     description: '单周纯真实打卡时长超过 50 小时',
-    proposer: 'LEC 工作室',
+    proposer: '李子佳',
     category: 'honor',
     forced: false,
     icon: 'sparkles',
@@ -104,10 +107,21 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     priority: 100,
   },
   {
+    id: 'mcgrady-time',
+    name: 'McGrady Time',
+    description: '单周纯真实打卡时长达到 35 小时',
+    proposer: '陈昱璋',
+    category: 'honor',
+    forced: false,
+    icon: 'timer',
+    theme: 'crimson',
+    priority: 98,
+  },
+  {
     id: 'contributor-king',
     name: '贡献王',
     description: '连续 3 次 Orbit 版本更新都参与并提交合并 PR（长期保留）',
-    proposer: 'LEC 工作室',
+    proposer: '曾权军',
     category: 'honor',
     forced: false,
     persistent: true,
@@ -131,7 +145,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'collection-king',
     name: '收集之王',
     description: '集齐卡牌图鉴中全部种类的卡片（长期保留）',
-    proposer: 'LEC 工作室',
+    proposer: '曾权军',
     category: 'honor',
     forced: false,
     persistent: true,
@@ -166,7 +180,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'gamble-king',
     name: '赌王',
     description: '连续使用 5 张「我赌你的枪里没有子弹」并全部成功（长期保留）',
-    proposer: 'LEC 工作室',
+    proposer: '钟晨彬',
     category: 'fun',
     forced: false,
     persistent: true,
@@ -179,7 +193,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'most-honest',
     name: '最老实之人',
     description: '每天上课期间猛猛打卡（结合个人课表判定，未导课表按同年级/校历教学时段兜底）',
-    proposer: 'LEC 工作室',
+    proposer: '林佳政',
     category: 'routine',
     forced: false,
     icon: 'book-open',
@@ -201,7 +215,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'good-student',
     name: '三好学生',
     description: '上周有效打卡满 1 小时，且一整周上课期间从不打卡（未导课表按同年级/校历教学时段兜底）',
-    proposer: 'LEC 工作室',
+    proposer: '匡思进',
     category: 'routine',
     forced: false,
     icon: 'graduation-cap',
@@ -212,7 +226,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'dragon-king',
     name: '龙王',
     description: '本周获得「吕洞宾」称号后，成功对使其获得称号的人施加负面效果卡',
-    proposer: 'LEC 工作室',
+    proposer: '牛闻举',
     category: 'fun',
     forced: false,
     icon: 'flame',
@@ -244,8 +258,8 @@ export const TITLE_CATALOG: TitleDefinition[] = [
   {
     id: 'almost-perfect',
     name: '差一步美满',
-    description: '上周纯真实打卡时长结算时距本年级目标差不到 1 小时（目标 −1h 至目标之间）',
-    proposer: 'LEC 工作室',
+    description: '上周考核结算综合时长距本年级目标差不到 1 小时（目标 −1h 至目标之间）',
+    proposer: '牛闻举',
     category: 'fun',
     forced: false,
     icon: 'target',
@@ -256,7 +270,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'lancer-luck-e',
     name: '自古枪兵幸运e',
     description: '抽 SSR 卡触发大保底才出（长期保留）',
-    proposer: 'LEC 工作室',
+    proposer: '曾权军',
     category: 'fun',
     forced: false,
     persistent: true,
@@ -291,7 +305,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'card-collector',
     name: '收集者',
     description: '在卡牌图鉴中收集 5 种不同的卡片（长期保留）',
-    proposer: 'LEC 工作室',
+    proposer: '曾权军',
     category: 'honor',
     forced: false,
     persistent: true,
@@ -301,14 +315,23 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     priority: 64,
   },
   {
+    id: 'uneasy',
+    name: '感到不安',
+    description: '单周综合打卡时长落后排行榜上一名超过 5 小时',
+    proposer: '陈昱璋',
+    category: 'fun',
+    forced: false,
+    icon: 'alert-triangle',
+    theme: 'rose',
+    priority: 62,
+  },
+  {
     id: 'quit-gambling',
     name: '求求你戒赌吧',
-    description: '连续使用 5 张「我赌你的枪里没有子弹」且全部失败（长期保留，可手动关闭）',
-    proposer: 'LEC 工作室',
+    description: '连续使用 5 张「我赌你的枪里没有子弹」且全部失败（永久强制展示，下次赌赢即可解除）',
+    proposer: '钟晨彬',
     category: 'debuff',
     forced: true,
-    persistent: true,
-    hideable: true,
     icon: 'skull',
     theme: 'slate',
     priority: 52,
@@ -328,12 +351,23 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     id: 'almost-gone',
     name: '快思了',
     description: '上周连续一整周没有任何有效打卡记录',
-    proposer: 'LEC 工作室',
+    proposer: '曾权军',
     category: 'debuff',
     forced: true,
     icon: 'ghost',
     theme: 'alert',
     priority: 48,
+  },
+  {
+    id: 'low-stamina',
+    name: '体力不支',
+    description: '上周有效打卡成员中综合打卡时长最少',
+    proposer: '陈昱璋',
+    category: 'debuff',
+    forced: true,
+    icon: 'battery-low',
+    theme: 'slate',
+    priority: 46,
   },
   {
     id: 'purple-egg',

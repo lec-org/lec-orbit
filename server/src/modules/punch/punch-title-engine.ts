@@ -1,6 +1,6 @@
 /**
- * 称号系统纯计算引擎（零外部时区库依赖，严格按 Asia/Shanghai UTC+8 自然日与考核周评估全部 23 个称号）。
- * 覆盖原 LecPunch 11 个基础称号 + Orbit 12 个扩展称号（含课表联动与无课表分层兜底、长期持久化与显隐控制）。
+ * 称号系统纯计算引擎（零外部时区库依赖，严格按 Asia/Shanghai UTC+8 自然日与考核周评估全部 26 个称号）。
+ * 覆盖原 LecPunch 11 个基础称号 + Orbit 15 个扩展称号（含课表联动与无课表分层兜底、长期持久化与显隐控制）。
  */
 import type { BusyScheduleSnapshot } from '../calendar/entities/member-busy-snapshot.entity.js';
 import { comprehensiveDurationSeconds, weeklyGoalSeconds } from './punch-shared.util.js';
@@ -17,6 +17,7 @@ const MAX_VALID_SESSION_SECONDS = 18_000;
 const ONE_HOUR_SECONDS = 3_600;
 const FOUR_HOURS_SECONDS = 4 * 3_600;
 const FIVE_HOURS_SECONDS = 5 * 3_600;
+const THIRTY_FIVE_HOURS_SECONDS = 35 * 3_600;
 const FIFTY_HOURS_SECONDS = 50 * 3_600;
 const DEFAULT_CARD_CATALOG_SIZE = 21;
 
@@ -794,7 +795,7 @@ export function projectMemberTitleDisplay(
   };
 }
 
-/** 评估全团队所有成员的 23 项自动称号、展示亮牌与进度文案。 */
+/** 评估全团队所有成员的 26 项自动称号、展示亮牌与进度文案。 */
 export function evaluateTeamTitles(
   input: EvaluateTeamTitlesInput,
 ): Map<string, MemberTitleEvaluation> {
@@ -990,6 +991,32 @@ export function evaluateTeamTitles(
   const results = new Map<string, MemberTitleEvaluation>();
   const remainingWeekSeconds = Math.max(0, Math.floor((currentWeekEndMs - nowMs) / 1000));
 
+  // 预先汇总全工作室上周/本周综合时长，用于「体力不支」（垫底）与「感到不安」（落后排行榜上一名 > 5h）
+  const prevPunchedTotals: number[] = [];
+  const curPunchedTotals: number[] = [];
+  for (const m of input.members) {
+    const met = metricsByUser.get(m.id)!;
+    const existed = !m.createdAt || m.createdAt.getTime() < prevWeek1EndMs;
+    const prevRec = met.recordedByWeek.get(prevWeek1Key) ?? 0;
+    if (existed && prevRec > 0) {
+      prevPunchedTotals.push(getWeekTotal(m.id, prevWeek1Key));
+    }
+    const curRec = (met.recordedByWeek.get(currentWeekKey) ?? 0) + met.activeCurrentWeekSeconds;
+    if (curRec > 0) {
+      curPunchedTotals.push(getWeekTotal(m.id, currentWeekKey, true));
+    }
+  }
+  const prevMinTotal = prevPunchedTotals.length >= 2 ? Math.min(...prevPunchedTotals) : null;
+  const prevMaxTotal = prevPunchedTotals.length >= 2 ? Math.max(...prevPunchedTotals) : null;
+  const hasPrevStaminaSpread =
+    prevMinTotal !== null && prevMaxTotal !== null && prevMinTotal < prevMaxTotal;
+  const sortedDistinctPrevTotals = [...new Set(prevPunchedTotals)].sort((a, b) => a - b);
+  const sortedDistinctCurTotals = [...new Set(curPunchedTotals)].sort((a, b) => a - b);
+  const computeGapToPrevRank = (distinctAsc: number[], myTotal: number): number => {
+    const nextHigher = distinctAsc.find((v) => v > myTotal);
+    return nextHigher !== undefined ? nextHigher - myTotal : 0;
+  };
+
   for (const member of input.members) {
     const metrics = metricsByUser.get(member.id)!;
     const goalSeconds = weeklyGoalSeconds(member.enrollYear);
@@ -1079,11 +1106,13 @@ export function evaluateTeamTitles(
           : remainingGoalSeconds / remainingWeekSeconds;
     const lovesickActive = remainingGoalSeconds > 0 && pressureRatio >= 0.3;
 
-    // 14. 差一步美满（按年级目标自适应，纯真实打卡：goal - 1h < prev1Recorded < goal）
+    // 14. 差一步美满（与周考核结算口径一致，按年级目标自适应综合时长：goal - 1h < prev1Total < goal）
     const almostPerfectUnlocked =
-      prev1Recorded > goalSeconds - ONE_HOUR_SECONDS && prev1Recorded < goalSeconds;
+      existedLastWeek &&
+      prev1Total > goalSeconds - ONE_HOUR_SECONDS &&
+      prev1Total < goalSeconds;
 
-    // 15 & 16. 赌王 / 求求你戒赌吧（跨周累计、达成后长期保留）
+    // 15 & 16. 赌王（5 连胜长期保留）/ 求求你戒赌吧（5 连败永久强制展示，下次赌赢即解除）
     const gambleEvents = [...(input.gambleEventsByUser?.get(member.id) ?? [])].sort(
       (a, b) => a.atMs - b.atMs,
     );
@@ -1103,7 +1132,7 @@ export function evaluateTeamTitles(
       }
     }
     const gambleKingUnlocked = maxWinStreak >= 5 || persistentSet.has('gamble-king');
-    const quitGamblingUnlocked = maxLoseStreak >= 5 || persistentSet.has('quit-gambling');
+    const quitGamblingUnlocked = curLoseStreak >= 5;
 
     // 17. 龙王
     const dragonKingUnlocked = dragonKingUsers.has(member.id);
@@ -1169,10 +1198,30 @@ export function evaluateTeamTitles(
       goodStudentUnlocked ? prevClassEval.mode : curClassEval.mode,
     );
 
-    // 24. 神（单周纯真实打卡时长超过 50 小时）
+    // 24. 神（单周纯真实打卡时长超过 50 小时）& 25. McGrady Time（单周纯真实打卡时长达到 35 小时）
     const bestRecordedWeekSec = Math.max(curWeekRecorded, prev1Recorded);
     const punchGodUnlocked =
       curWeekRecorded > FIFTY_HOURS_SECONDS || prev1Recorded > FIFTY_HOURS_SECONDS;
+    const mcgradyTimeUnlocked =
+      curWeekRecorded >= THIRTY_FIVE_HOURS_SECONDS || prev1Recorded >= THIRTY_FIVE_HOURS_SECONDS;
+
+    // 26. 体力不支（上周已入驻且有有效打卡成员中综合时长垫底，强制亮牌）
+    const lowStaminaActive =
+      existedLastWeek &&
+      prev1Recorded > 0 &&
+      hasPrevStaminaSpread &&
+      prev1Total === prevMinTotal;
+
+    // 27. 感到不安（单周综合打卡时长落后排行榜紧邻上一名超过 5 小时）
+    const curRankGapSec =
+      curWeekRecorded > 0 ? computeGapToPrevRank(sortedDistinctCurTotals, currentWeekTotal) : 0;
+    const prevRankGapSec =
+      existedLastWeek && prev1Recorded > 0
+        ? computeGapToPrevRank(sortedDistinctPrevTotals, prev1Total)
+        : 0;
+    const maxRankGapSec = Math.max(curRankGapSec, prevRankGapSec);
+    const uneasyUnlocked =
+      curRankGapSec > FIVE_HOURS_SECONDS || prevRankGapSec > FIVE_HOURS_SECONDS;
 
     const goalHours = Math.round(goalSeconds / 3600);
 
@@ -1182,6 +1231,12 @@ export function evaluateTeamTitles(
         progressText: punchGodUnlocked
           ? `已封神（最高单周纯打卡 ${(bestRecordedWeekSec / 3600).toFixed(1)}h）`
           : `本周纯打卡 ${(curWeekRecorded / 3600).toFixed(1)}h / 50h`,
+      },
+      'mcgrady-time': {
+        unlocked: mcgradyTimeUnlocked,
+        progressText: mcgradyTimeUnlocked
+          ? `已进入麦迪时刻（最高单周纯打卡 ${(bestRecordedWeekSec / 3600).toFixed(1)}h）`
+          : `本周纯打卡 ${(curWeekRecorded / 3600).toFixed(1)}h / 35h`,
       },
       'punch-star': {
         unlocked: punchStarRes.qualified3,
@@ -1274,8 +1329,8 @@ export function evaluateTeamTitles(
       'almost-perfect': {
         unlocked: almostPerfectUnlocked,
         progressText: almostPerfectUnlocked
-          ? `上周纯打卡 ${(prev1Recorded / 3600).toFixed(2)}h，差一步满 ${goalHours}h`
-          : `目标区间 ${goalHours - 1}–${goalHours}h（纯真实打卡）`,
+          ? `上周结算综合时长 ${(prev1Total / 3600).toFixed(2)}h，差一步满 ${goalHours}h`
+          : `目标区间 ${goalHours - 1}–${goalHours}h（按结算综合时长）`,
       },
       'lancer-luck-e': {
         unlocked: lancerLuckEUnlocked,
@@ -1301,10 +1356,18 @@ export function evaluateTeamTitles(
           ? `已收集 ${discoveredCount} 种卡片（长期保留）`
           : `当前已收集 ${Math.min(5, discoveredCount)}/5 种卡片`,
       },
+      uneasy: {
+        unlocked: uneasyUnlocked,
+        progressText: uneasyUnlocked
+          ? `落后排行榜上一名 ${(maxRankGapSec / 3600).toFixed(1)}h（> 5h）`
+          : curRankGapSec > 0
+            ? `当前落后上一名 ${(curRankGapSec / 3600).toFixed(1)}h / 5h`
+            : '当前稳居前列或暂无有效差距',
+      },
       'quit-gambling': {
         unlocked: quitGamblingUnlocked,
         progressText: quitGamblingUnlocked
-          ? '已达成 5 连败戒赌预警（长期保留，可关闭）'
+          ? `已连续失败 ${curLoseStreak} 次（持续亮牌，下次赌赢即解除）`
           : `当前连败 ${Math.min(5, curLoseStreak)}/5 次（历史最高 ${Math.min(5, maxLoseStreak)}/5）`,
       },
       lovesick: {
@@ -1321,6 +1384,16 @@ export function evaluateTeamTitles(
           : existedLastWeek
             ? '上周已有有效打卡记录'
             : '新成员首周免挂预警',
+      },
+      'low-stamina': {
+        unlocked: lowStaminaActive,
+        progressText: lowStaminaActive
+          ? `上周综合时长 ${(prev1Total / 3600).toFixed(1)}h，为有效打卡成员垫底`
+          : !existedLastWeek
+            ? '新成员首周免挂预警'
+            : prev1Recorded === 0
+              ? '上周无打卡记录（计入快思了）'
+              : `上周综合时长 ${(prev1Total / 3600).toFixed(1)}h（未垫底）`,
       },
       'purple-egg': {
         unlocked: purpleEggActive,

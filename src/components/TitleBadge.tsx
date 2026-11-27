@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AlertTriangle,
+  BatteryLow,
   BookOpen,
   CalendarCheck,
   Clover,
@@ -22,6 +24,7 @@ import {
   Sunrise,
   Swords,
   Target,
+  Timer,
   Trophy,
   Zap,
 } from 'lucide-react';
@@ -81,6 +84,12 @@ function renderTitleIcon(icon: TitleIconKey, size: number): JSX.Element {
       return <GraduationCap size={size} strokeWidth={2.2} />;
     case 'sparkles':
       return <Sparkles size={size} strokeWidth={2.2} />;
+    case 'timer':
+      return <Timer size={size} strokeWidth={2.2} />;
+    case 'battery-low':
+      return <BatteryLow size={size} strokeWidth={2.2} />;
+    case 'alert-triangle':
+      return <AlertTriangle size={size} strokeWidth={2.2} />;
     default:
       return <Crown size={size} strokeWidth={2.2} />;
   }

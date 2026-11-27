@@ -68,22 +68,39 @@ function makeWeekdayMorningSchedule(): BusyScheduleSnapshot {
   };
 }
 
-describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底）', () => {
+describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底）', () => {
   // 2026-09-16 为周三（第 2 周），prevWeek1 = 2026-09-07（第 1 周周一）
   const now = new Date(shanghaiDayStartMs('2026-09-16', 20, 0));
   const prevWeekKey = '2026-09-07';
   const curWeekKey = '2026-09-14';
   const oldCreatedAt = new Date(shanghaiDayStartMs('2026-08-01', 0, 0));
 
-  test('称号目录共包含 23 项（11 原有 + 12 新增）', () => {
-    expect(TITLE_CATALOG.length).toBe(23);
+  test('称号目录共包含 26 项（11 原有 + 15 新增）且提出人与称号表对齐', () => {
+    expect(TITLE_CATALOG.length).toBe(26);
+    const byId = new Map(TITLE_CATALOG.map((t) => [t.id, t]));
+    expect(byId.get('punch-god')?.proposer).toBe('李子佳');
+    expect(byId.get('good-student')?.proposer).toBe('匡思进');
+    expect(byId.get('almost-perfect')?.proposer).toBe('牛闻举');
+    expect(byId.get('dragon-king')?.proposer).toBe('牛闻举');
+    expect(byId.get('gamble-king')?.proposer).toBe('钟晨彬');
+    expect(byId.get('quit-gambling')?.proposer).toBe('钟晨彬');
+    expect(byId.get('almost-gone')?.proposer).toBe('曾权军');
+    expect(byId.get('contributor-king')?.proposer).toBe('曾权军');
+    expect(byId.get('lancer-luck-e')?.proposer).toBe('曾权军');
+    expect(byId.get('card-collector')?.proposer).toBe('曾权军');
+    expect(byId.get('collection-king')?.proposer).toBe('曾权军');
+    expect(byId.get('most-honest')?.proposer).toBe('林佳政');
+    expect(byId.get('mcgrady-time')?.proposer).toBe('陈昱璋');
+    expect(byId.get('low-stamina')?.proposer).toBe('陈昱璋');
+    expect(byId.get('uneasy')?.proposer).toBe('陈昱璋');
   });
 
-  test('差一步美满：按年级目标自适应且仅计算纯真实打卡（25 级 27-28h，24 级 37-38h）', () => {
-    // u25: 25级（目标 28h），上周纯打卡 27.5h（9*3h + 0.5h）-> 解锁
-    // u25_ent: 25级，上周纯打卡 25h + 卡牌娱乐 +2.5h = 27.5h -> 不解锁
-    // u24: 24级（目标 38h），上周纯打卡 37.5h -> 解锁
-    // u24_low: 24级，上周纯打卡 27.5h -> 不解锁
+  test('差一步美满：与周考核结算一致采用综合时长，并按年级目标自适应（25 级 27-28h，24 级 37-38h）', () => {
+    // u25: 25级（目标 28h），上周综合时长 27.5h -> 解锁
+    // u25_ent: 25级，上周纯打卡 25h + 卡牌娱乐 +2.5h = 综合 27.5h -> 解锁（与结算一致）
+    // u25_full: 25级，纯打卡 27.5h + 卡牌娱乐 +1h = 综合 28.5h（已达标）-> 不解锁
+    // u24: 24级（目标 38h），上周综合 37.5h -> 解锁
+    // u24_low: 24级，上周综合 27.5h -> 不解锁
     const sessions: TitleEngineSession[] = [];
     const prevDays = [
       '2026-09-07',
@@ -94,13 +111,15 @@ describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底�
       '2026-09-12',
       '2026-09-13',
     ];
-    // u25: 每天 3.5h * 7 = 24.5h，再加 3h = 27.5h
+    // u25 & u25_full: 每天 3.5h * 7 = 24.5h，再加 3h = 27.5h
     for (const d of prevDays) {
       sessions.push(makeSession('u25', d, prevWeekKey, 10, 0, 210));
+      sessions.push(makeSession('u25_full', d, prevWeekKey, 10, 0, 210));
     }
     sessions.push(makeSession('u25', '2026-09-07', prevWeekKey, 15, 0, 180));
+    sessions.push(makeSession('u25_full', '2026-09-07', prevWeekKey, 15, 0, 180));
 
-    // u25_ent: 纯打卡 25h（7*3h + 4h）+ 娱乐 2.5h
+    // u25_ent: 纯打卡 25h（7*3h + 4h）+ 娱乐 2.5h = 综合 27.5h
     for (const d of prevDays) {
       sessions.push(makeSession('u25_ent', d, prevWeekKey, 10, 0, 180));
     }
@@ -124,24 +143,29 @@ describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底�
       members: [
         { id: 'u25', enrollYear: 2025, createdAt: oldCreatedAt },
         { id: 'u25_ent', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u25_full', enrollYear: 2025, createdAt: oldCreatedAt },
         { id: 'u24', enrollYear: 2024, createdAt: oldCreatedAt },
         { id: 'u24_low', enrollYear: 2024, createdAt: oldCreatedAt },
       ],
       sessions,
       manualAdjustmentsByUserWeek: new Map(),
-      entertainmentByUserWeek: new Map([['u25_ent:2026-09-07', 9000]]),
+      entertainmentByUserWeek: new Map([
+        ['u25_ent:2026-09-07', 9000],
+        ['u25_full:2026-09-07', 3600],
+      ]),
       currentWeekCardInteractions: [],
     });
 
     const isUnlocked = (uid: string) =>
       res.get(uid)?.catalog.find((c) => c.id === 'almost-perfect')?.unlocked;
     expect(isUnlocked('u25')).toBe(true);
-    expect(isUnlocked('u25_ent')).toBe(false);
+    expect(isUnlocked('u25_ent')).toBe(true);
+    expect(isUnlocked('u25_full')).toBe(false);
     expect(isUnlocked('u24')).toBe(true);
     expect(isUnlocked('u24_low')).toBe(false);
   });
 
-  test('赌王、求求你戒赌吧（自动强制亮牌 + 长期保留 + 可手动关闭）', () => {
+  test('赌王（5 连胜长期保留可隐藏）与求求你戒赌吧（5 连败永久强制亮牌、不可手动关闭、下次赌赢即解除）', () => {
     const winReceipts = [1, 2, 3, 4, 5].map((i) =>
       extractGambleEventFromReceipt({
         actorId: 'winner',
@@ -171,24 +195,48 @@ describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底�
         },
       })!,
     );
+    // 5 连败后第 6 次赌赢 -> 应自动解除「求求你戒赌吧」
+    const redeemedEvents = [
+      ...loseReceipts.map((r) => r.event),
+      extractGambleEventFromReceipt({
+        actorId: 'redeemed',
+        at: new Date(shanghaiDayStartMs('2026-09-15', 16, 0)).toISOString(),
+        result: {
+          action: 'use',
+          actionCard: { id: 'n-gamble', name: '我赌你的枪里没有子弹' },
+          effects: [
+            { kind: 'judgement', detail: '自身判定幸运，获得 30 分钟加成' },
+            { kind: 'time', deltaSeconds: 1800 },
+          ],
+        },
+      })!.event,
+    ];
 
     const gambleEventsByUser = new Map([
       ['winner', winReceipts.map((r) => r.event)],
       ['loser', loseReceipts.map((r) => r.event)],
+      ['redeemed', redeemedEvents],
     ]);
 
     const res = evaluateTeamTitles({
       now,
       members: [
         { id: 'winner', enrollYear: 2025, createdAt: oldCreatedAt },
-        { id: 'loser', enrollYear: 2025, createdAt: oldCreatedAt },
         {
-          id: 'loser_hidden',
+          id: 'winner_hidden',
           enrollYear: 2025,
           createdAt: oldCreatedAt,
-          persistentTitleIds: ['quit-gambling'],
+          persistentTitleIds: ['gamble-king'],
+          hiddenTitleIds: ['gamble-king'],
+        },
+        {
+          id: 'loser',
+          enrollYear: 2025,
+          createdAt: oldCreatedAt,
+          // 即使历史数据里带了 hiddenTitleIds，由于求求你戒赌吧不可隐藏，仍必须强制亮牌
           hiddenTitleIds: ['quit-gambling'],
         },
+        { id: 'redeemed', enrollYear: 2025, createdAt: oldCreatedAt },
       ],
       sessions: [],
       manualAdjustmentsByUserWeek: new Map(),
@@ -199,18 +247,17 @@ describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底�
 
     expect(res.get('winner')?.catalog.find((c) => c.id === 'gamble-king')?.unlocked).toBe(true);
     expect(res.get('winner')?.newlyUnlockedPersistentTitleIds).toContain('gamble-king');
+    expect(res.get('winner_hidden')?.catalog.find((c) => c.id === 'gamble-king')?.hidden).toBe(true);
+    expect(res.get('winner_hidden')?.displayTitles.some((t) => t.id === 'gamble-king')).toBe(false);
 
+    // 5 连败未赢过 -> 永久强制亮牌且不写入 persistentTitleIds（以便赌赢即解除）
     expect(res.get('loser')?.catalog.find((c) => c.id === 'quit-gambling')?.unlocked).toBe(true);
-    // 默认打开且 forced: true -> 出现在 displayTitles 中
     expect(res.get('loser')?.displayTitles.some((t) => t.id === 'quit-gambling')).toBe(true);
+    expect(res.get('loser')?.newlyUnlockedPersistentTitleIds).not.toContain('quit-gambling');
 
-    // 长期保留，但成员主动关闭展示后不出现在 displayTitles 中
-    const hiddenItem = res.get('loser_hidden')?.catalog.find((c) => c.id === 'quit-gambling');
-    expect(hiddenItem?.unlocked).toBe(true);
-    expect(hiddenItem?.hidden).toBe(true);
-    expect(res.get('loser_hidden')?.displayTitles.some((t) => t.id === 'quit-gambling')).toBe(
-      false,
-    );
+    // 5 连败后赢 1 把 -> 立刻解除「求求你戒赌吧」
+    expect(res.get('redeemed')?.catalog.find((c) => c.id === 'quit-gambling')?.unlocked).toBe(false);
+    expect(res.get('redeemed')?.displayTitles.some((t) => t.id === 'quit-gambling')).toBe(false);
   });
 
   test('龙王：获得吕洞宾后成功对施害者施加负面效果才解锁（被阻挡不算成功）', () => {
@@ -727,5 +774,71 @@ describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底�
     await expect(svc.setTitleVisibility('team-1', 'non-eligible', 'card-collector', true)).rejects.toThrow(
       '仅大一至大三',
     );
+  });
+
+  test('新增 3 项称号：McGrady Time（≥35h 纯打卡）、体力不支（上周有效打卡垫底）与感到不安（落后上一名 >5h）', () => {
+    const prevDays = [
+      '2026-09-07',
+      '2026-09-08',
+      '2026-09-09',
+      '2026-09-10',
+      '2026-09-11',
+      '2026-09-12',
+      '2026-09-13',
+    ];
+    const sessions: TitleEngineSession[] = [];
+    // u_tmac: 上周纯打卡 35h（7 天 × 5h = 35h）-> 解锁 McGrady Time，排第 1（不触发感到不安 / 体力不支）
+    for (const d of prevDays) {
+      sessions.push(makeSession('u_tmac', d, prevWeekKey, 8, 0, 180));
+      sessions.push(makeSession('u_tmac', d, prevWeekKey, 14, 0, 120));
+    }
+    // u_mid: 上周纯打卡 28h（7 天 × 4h = 28h），落后 u_tmac 7h (> 5h) -> 解锁感到不安，不解锁 McGrady Time
+    for (const d of prevDays) {
+      sessions.push(makeSession('u_mid', d, prevWeekKey, 9, 0, 240));
+    }
+    // u_close: 上周纯打卡 24h（6 天 × 4h = 24h），落后 u_mid 4h (<= 5h) -> 不解锁感到不安，不垫底
+    for (const d of prevDays.slice(0, 6)) {
+      sessions.push(makeSession('u_close', d, prevWeekKey, 9, 0, 240));
+    }
+    // u_low: 上周纯打卡 6h（2 天 × 3h = 6h），垫底且落后 u_close 18h -> 同时触发「体力不支」（强制亮牌）与「感到不安」
+    sessions.push(makeSession('u_low', '2026-09-07', prevWeekKey, 9, 0, 180));
+    sessions.push(makeSession('u_low', '2026-09-08', prevWeekKey, 9, 0, 180));
+    // u_zero: 上周 0 打卡 -> 触发「快思了」，不触发「体力不支」
+
+    const res = evaluateTeamTitles({
+      now,
+      members: [
+        { id: 'u_tmac', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u_mid', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u_close', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u_low', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u_zero', enrollYear: 2025, createdAt: oldCreatedAt },
+      ],
+      sessions,
+      manualAdjustmentsByUserWeek: new Map(),
+      entertainmentByUserWeek: new Map([['u_mid:2026-09-07', 0]]),
+      currentWeekCardInteractions: [],
+    });
+
+    const unlocked = (uid: string, titleId: string) =>
+      res.get(uid)?.catalog.find((c) => c.id === titleId)?.unlocked;
+
+    expect(unlocked('u_tmac', 'mcgrady-time')).toBe(true);
+    expect(unlocked('u_tmac', 'uneasy')).toBe(false);
+    expect(unlocked('u_tmac', 'low-stamina')).toBe(false);
+
+    expect(unlocked('u_mid', 'mcgrady-time')).toBe(false);
+    expect(unlocked('u_mid', 'uneasy')).toBe(true);
+    expect(unlocked('u_mid', 'low-stamina')).toBe(false);
+
+    expect(unlocked('u_close', 'uneasy')).toBe(false);
+    expect(unlocked('u_close', 'low-stamina')).toBe(false);
+
+    expect(unlocked('u_low', 'low-stamina')).toBe(true);
+    expect(res.get('u_low')?.displayTitles.some((t) => t.id === 'low-stamina')).toBe(true);
+    expect(unlocked('u_low', 'uneasy')).toBe(true);
+
+    expect(unlocked('u_zero', 'almost-gone')).toBe(true);
+    expect(unlocked('u_zero', 'low-stamina')).toBe(false);
   });
 });

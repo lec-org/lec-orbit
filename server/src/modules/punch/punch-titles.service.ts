@@ -1,5 +1,5 @@
 /**
- * 工作室称号系统服务（PostgreSQL TypeORM 版，完整实现 23 项自动判定称号、
+ * 工作室称号系统服务（PostgreSQL TypeORM 版，完整实现 26 项自动判定称号、
  * 课表快照与兜底接入、GitHub Release PR 贡献者统计、长期称号原子持久化、显隐开关、30 秒团队快照 single-flight 缓存与全员亮牌徽章映射）。
  */
 import {
@@ -171,7 +171,7 @@ export class PunchTitlesService {
     };
   }
 
-  /** 获取当前登录成员的完整称号面板（非近三级成员仍可浏览全量 23 项称号图鉴，但不参与解锁与佩戴）。 */
+  /** 获取当前登录成员的完整称号面板（非近三级成员仍可浏览全量 26 项称号图鉴，但不参与解锁与佩戴）。 */
   async getMyTitles(teamId: string, userId: string) {
     const snapshot = await this.computeTeamSnapshot(teamId, true);
     const mine = snapshot.byUserId.get(userId);
@@ -361,16 +361,11 @@ export class PunchTitlesService {
     currentWeekStartMs: number,
   ): Promise<CardTitleDataBundle> {
     const currentWeekStartIso = new Date(currentWeekStartMs).toISOString();
-    // 跳过已持久化对应长期称号的成员，减少历史回执扫描范围
+    // SSR 大保底为永久称号可跳过已持久化成员；赌狗卡需实时追踪「求求你戒赌吧」5 连败与下次赌赢解除，须覆盖全部活跃应考成员
     const needSsrPityUserIds = members
       .filter((m) => !(Array.isArray(m.persistentTitleIds) && m.persistentTitleIds.includes('lancer-luck-e')))
       .map((m) => m.id);
-    const needGambleUserIds = members
-      .filter((m) => {
-        const persisted = Array.isArray(m.persistentTitleIds) ? m.persistentTitleIds : [];
-        return !(persisted.includes('gamble-king') && persisted.includes('quit-gambling'));
-      })
-      .map((m) => m.id);
+    const needGambleUserIds = members.map((m) => m.id);
 
     const [
       game,
@@ -593,7 +588,7 @@ export class PunchTitlesService {
     }
   }
 
-  /** 计算（或命中 30 秒缓存 / single-flight 去重）全团队成员的 23 项称号评估快照，并原子持久化新解锁的长期称号。 */
+  /** 计算（或命中 30 秒缓存 / single-flight 去重）全团队成员的 26 项称号评估快照，并原子持久化新解锁的长期称号。 */
   private async computeTeamSnapshot(teamId: string, bypassCache: boolean): Promise<CachedTeamTitles> {
     const now = new Date();
     const weekKey = getShanghaiWeekKey(now);
