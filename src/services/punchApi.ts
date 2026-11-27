@@ -95,6 +95,7 @@ export const PUNCH_ENDPOINTS = {
   ackNotification: (id: string) => `/notifications/${encodeURIComponent(id)}/ack`,
   titlesMe: '/titles/me',
   titlesEquip: '/titles/me/equip',
+  titlesVisibility: '/titles/me/visibility',
   cardsMe: '/cards/me',
   cardsActions: '/cards/actions',
   cardsGiftsAck: '/cards/gifts/ack',
@@ -172,6 +173,8 @@ function normalizeTitleBadges(raw: unknown): MemberTitleBadge[] {
       proposer: typeof item.proposer === 'string' ? item.proposer : 'LEC',
       category: (item.category as MemberTitleBadge['category']) ?? 'honor',
       forced: Boolean(item.forced),
+      ...(item.persistent ? { persistent: true } : {}),
+      ...(item.hideable ? { hideable: true } : {}),
       icon: (item.icon as MemberTitleBadge['icon']) ?? 'crown',
       theme: (item.theme as MemberTitleBadge['theme']) ?? 'amber',
     }));
@@ -687,6 +690,7 @@ export const punchApi = {
       weekKey: data.weekKey ?? '',
       eligible: data.eligible ?? true,
       equippedTitleId: data.equippedTitleId ?? null,
+      hiddenTitleIds: Array.isArray(data.hiddenTitleIds) ? data.hiddenTitleIds : [],
       displayTitles: normalizeTitleBadges(data.displayTitles),
       catalog: Array.isArray(data.catalog) ? data.catalog : [],
     };
@@ -698,6 +702,22 @@ export const punchApi = {
       weekKey: data.weekKey ?? '',
       eligible: data.eligible ?? true,
       equippedTitleId: data.equippedTitleId ?? null,
+      hiddenTitleIds: Array.isArray(data.hiddenTitleIds) ? data.hiddenTitleIds : [],
+      displayTitles: normalizeTitleBadges(data.displayTitles),
+      catalog: Array.isArray(data.catalog) ? data.catalog : [],
+    };
+  },
+
+  async setTitleVisibility(titleId: string, hidden: boolean): Promise<MyTitlesView> {
+    const { data } = await client.patch<MyTitlesView>(PUNCH_ENDPOINTS.titlesVisibility, {
+      titleId,
+      hidden,
+    });
+    return {
+      weekKey: data.weekKey ?? '',
+      eligible: data.eligible ?? true,
+      equippedTitleId: data.equippedTitleId ?? null,
+      hiddenTitleIds: Array.isArray(data.hiddenTitleIds) ? data.hiddenTitleIds : [],
       displayTitles: normalizeTitleBadges(data.displayTitles),
       catalog: Array.isArray(data.catalog) ? data.catalog : [],
     };

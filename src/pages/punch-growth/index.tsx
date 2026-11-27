@@ -60,6 +60,7 @@ export function PunchGrowthPage(): JSX.Element {
   const points = useOrbitStore((s) => s.points);
   const myTitles = useOrbitStore((s) => s.myTitles);
   const equipTitle = useOrbitStore((s) => s.equipTitle);
+  const setTitleVisibility = useOrbitStore((s) => s.setTitleVisibility);
   const segment = useOrbitStore((s) => s.growthSegment);
   const setSegment = useOrbitStore((s) => s.setGrowthSegment);
 
@@ -591,32 +592,50 @@ export function PunchGrowthPage(): JSX.Element {
                           <span className={styles.titleProgress}>
                             {item.progressText || (item.unlocked ? '已解锁' : '未解锁')}
                           </span>
-                          {!isTitleEligible ? (
-                            <Tag tone="neutral">{item.forced ? '状态类' : '荣誉图鉴'}</Tag>
-                          ) : item.forced ? (
-                            <Tag tone={item.unlocked ? 'warning' : 'neutral'}>
-                              {item.unlocked ? '自动亮牌中' : '状态预警'}
-                            </Tag>
-                          ) : item.equipped ? (
-                            <Tag tone="success" icon={<Check size={12} />}>
-                              佩戴中
-                            </Tag>
-                          ) : item.unlocked ? (
-                            <Button
-                              variant="filled"
-                              size="small"
-                              loading={isBusy}
-                              onClick={async () => {
-                                setEquippingId(item.id);
-                                await equipTitle(item.id);
-                                setEquippingId(null);
-                              }}
-                            >
-                              佩戴
-                            </Button>
-                          ) : (
-                            <Tag tone="neutral">未解锁</Tag>
-                          )}
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {isTitleEligible && item.unlocked && item.hideable && (
+                              <Button
+                                variant="glass"
+                                size="small"
+                                loading={equippingId === `vis:${item.id}`}
+                                onClick={async () => {
+                                  setEquippingId(`vis:${item.id}`);
+                                  await setTitleVisibility(item.id, !item.hidden);
+                                  setEquippingId(null);
+                                }}
+                              >
+                                {item.hidden ? '开启展示' : '关闭展示'}
+                              </Button>
+                            )}
+                            {!isTitleEligible ? (
+                              <Tag tone="neutral">{item.forced ? '状态类' : '荣誉图鉴'}</Tag>
+                            ) : item.hidden && item.unlocked ? (
+                              <Tag tone="neutral">已关闭</Tag>
+                            ) : item.forced ? (
+                              <Tag tone={item.unlocked ? 'warning' : 'neutral'}>
+                                {item.unlocked ? '自动亮牌中' : '状态预警'}
+                              </Tag>
+                            ) : item.equipped ? (
+                              <Tag tone="success" icon={<Check size={12} />}>
+                                佩戴中
+                              </Tag>
+                            ) : item.unlocked ? (
+                              <Button
+                                variant="filled"
+                                size="small"
+                                loading={isBusy}
+                                onClick={async () => {
+                                  setEquippingId(item.id);
+                                  await equipTitle(item.id);
+                                  setEquippingId(null);
+                                }}
+                              >
+                                佩戴
+                              </Button>
+                            ) : (
+                              <Tag tone="neutral">未解锁</Tag>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

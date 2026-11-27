@@ -50,6 +50,7 @@ import {
   PunchTeamLedgerEntryEntity,
   PunchWeeklyReportRefEntity,
 } from '../modules/punch/entities/punch-collab.entities.js';
+import { OrbitReleaseContributorEntity } from '../modules/punch/entities/orbit-release-contributor.entity.js';
 import {
   MiniAppFunctionBundleEntity,
   MiniAppGlobalKvEntity,
@@ -63,6 +64,7 @@ import { AddOrbitMemberProfileFields1764400000000 } from './migrations/176440000
 import { AddMiniAppEngagementTables1764500000000 } from './migrations/1764500000000-AddMiniAppEngagementTables.js';
 import { AddMiniAppPlayDaily1764600000000 } from './migrations/1764600000000-AddMiniAppPlayDaily.js';
 import { AddStudioCalendarAndFreeBusy1764900000000 } from './migrations/1764900000000-AddStudioCalendarAndFreeBusy.js';
+import { AddTitleUnlocksAndReleaseContributors1765000000000 } from './migrations/1765000000000-AddTitleUnlocksAndReleaseContributors.js';
 
 export const ALL_ENTITIES = [
   OrbitMemberEntity,
@@ -106,6 +108,7 @@ export const ALL_ENTITIES = [
   PunchTeamEventEntity,
   PunchTeamLedgerEntryEntity,
   PunchSkinUnlockEntity,
+  OrbitReleaseContributorEntity,
   // Orbit 托管云函数 FaaS 3 张核心表
   MiniAppFunctionBundleEntity,
   MiniAppGlobalKvEntity,
@@ -121,6 +124,7 @@ export const ALL_MIGRATIONS = [
   AddMiniAppEngagementTables1764500000000,
   AddMiniAppPlayDaily1764600000000,
   AddStudioCalendarAndFreeBusy1764900000000,
+  AddTitleUnlocksAndReleaseContributors1765000000000,
 ];
 
 export function buildTypeOrmOptions(cfg: AppConfig): DataSourceOptions {

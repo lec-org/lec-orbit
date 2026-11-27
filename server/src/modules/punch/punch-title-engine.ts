@@ -1,7 +1,8 @@
 /**
- * 称号系统纯计算引擎（零外部时区库依赖，严格按 Asia/Shanghai UTC+8 自然日与考核周评估全部 11 个称号）。
- * 规则与原 LecPunch title-engine 保持 100% 等价。
+ * 称号系统纯计算引擎（零外部时区库依赖，严格按 Asia/Shanghai UTC+8 自然日与考核周评估全部 22 个称号）。
+ * 覆盖原 LecPunch 11 个基础称号 + Orbit 11 个扩展称号（含课表联动与无课表分层兜底、长期持久化与显隐控制）。
  */
+import type { BusyScheduleSnapshot } from '../calendar/entities/member-busy-snapshot.entity.js';
 import { comprehensiveDurationSeconds, weeklyGoalSeconds } from './punch-shared.util.js';
 import {
   TITLE_CATALOG,
@@ -16,6 +17,30 @@ const MAX_VALID_SESSION_SECONDS = 18_000;
 const ONE_HOUR_SECONDS = 3_600;
 const FOUR_HOURS_SECONDS = 4 * 3_600;
 const FIVE_HOURS_SECONDS = 5 * 3_600;
+const FIFTY_HOURS_SECONDS = 50 * 3_600;
+const DEFAULT_CARD_CATALOG_SIZE = 21;
+
+/** 西南石油大学（成都校区）标准 1–12 节作息（与客户端 src/shared/schedule.ts 对齐，用于课表展开与兜底）。 */
+const SWPU_DEFAULT_SLOT_MAP: ReadonlyMap<number, { startTime: string; endTime: string }> = new Map([
+  [1, { startTime: '08:00', endTime: '08:45' }],
+  [2, { startTime: '08:50', endTime: '09:35' }],
+  [3, { startTime: '09:50', endTime: '10:35' }],
+  [4, { startTime: '10:40', endTime: '11:25' }],
+  [5, { startTime: '11:30', endTime: '12:15' }],
+  [6, { startTime: '14:30', endTime: '15:15' }],
+  [7, { startTime: '15:20', endTime: '16:05' }],
+  [8, { startTime: '16:20', endTime: '17:05' }],
+  [9, { startTime: '17:10', endTime: '17:55' }],
+  [10, { startTime: '19:00', endTime: '19:45' }],
+  [11, { startTime: '19:50', endTime: '20:35' }],
+  [12, { startTime: '20:40', endTime: '21:25' }],
+]);
+
+/** 未导入课表且同年级样本不足时的标准工作日白昼教学时段（1–5 节上午 + 6–9 节下午，不含午休与晚自习）。 */
+const SWPU_STANDARD_DAYTIME_WINDOWS: ReadonlyArray<{ startHm: string; endHm: string }> = [
+  { startHm: '08:00', endHm: '12:15' },
+  { startHm: '14:30', endHm: '17:55' },
+];
 
 const NEGATIVE_CARD_NAMES = new Set([
   '减时长',
@@ -34,6 +59,16 @@ export interface TitleEngineMember {
   enrollYear: number;
   createdAt?: Date;
   equippedTitleId?: string | null;
+  /** 已持久化解锁的长期称号 ID 列表。 */
+  persistentTitleIds?: string[];
+  /** 成员主动关闭展示的称号 ID 列表（仅对 hideable 称号生效）。 */
+  hiddenTitleIds?: string[];
+  /** 成员绑定的 GitHub 用户名（用于「贡献王」匹配）。 */
+  githubUsername?: string | null;
+  /** 成员卡牌图鉴已解锁种类数（用于「收集者」「收集之王」）。 */
+  discoveredCardCount?: number;
+  /** 成员同步到云端的个人课表快照（来自 PR #13 member_busy_snapshots，用于「最老实之人」）。 */
+  scheduleSnapshot?: BusyScheduleSnapshot | null;
 }
 
 export interface TitleEngineSession {
@@ -50,6 +85,19 @@ export interface TitleEngineCardInteraction {
   targetId: string;
   polarity: 'positive' | 'negative';
   atMs: number;
+  /** 负面效果是否真正生效（未被盾/无懈可击阻挡或反弹）；未提供时默认视为 true。 */
+  applied?: boolean;
+}
+
+export interface TitleEngineGambleEvent {
+  atMs: number;
+  won: boolean;
+}
+
+export interface TitleEngineReleaseContributor {
+  tagName: string;
+  publishedAt: Date;
+  contributorLogins: string[];
 }
 
 export interface EvaluateTeamTitlesInput {
@@ -62,10 +110,21 @@ export interface EvaluateTeamTitlesInput {
   entertainmentByUserWeek: Map<string, number>;
   /** 本周发生的跨人卡牌正/负面交互事件。 */
   currentWeekCardInteractions: TitleEngineCardInteraction[];
+  /** 成员全历史「我赌你的枪里没有子弹」使用记录（用于「赌王」「求求你戒赌吧」）。 */
+  gambleEventsByUser?: Map<string, TitleEngineGambleEvent[]>;
+  /** 全历史曾触发 SSR 大保底的成员 ID 集合（用于「自古枪兵幸运e」）。 */
+  ssrPityUsers?: Set<string>;
+  /** Orbit 历史 Release 的合并 PR 作者列表（用于「贡献王」）。 */
+  releaseContributors?: TitleEngineReleaseContributor[];
+  /** 当前卡牌目录总种类数（默认 21，用于「收集之王」）。 */
+  totalCatalogCards?: number;
 }
 
 export interface MemberTitleEvaluation {
   equippedTitleId: string | null;
+  hiddenTitleIds: string[];
+  /** 本次评估中新解锁且尚未写入 persistentTitleIds 的长期称号 ID 列表。 */
+  newlyUnlockedPersistentTitleIds: string[];
   displayTitles: MemberTitleBadge[];
   catalog: TitleEvaluationItem[];
 }
@@ -77,6 +136,11 @@ interface ShanghaiParts {
   day: number; // 1..31
   hour: number; // 0..23
   weekday: number; // 1=周一 .. 7=周日
+}
+
+interface TimeIntervalMs {
+  startMs: number;
+  endMs: number;
 }
 
 function pad2(n: number): string {
@@ -100,10 +164,10 @@ export function getShanghaiParts(ms: number): ShanghaiParts {
   };
 }
 
-/** 将上海自然日 YYYY-MM-DD（可选小时）转为对应 UTC 毫秒时间戳。 */
-export function shanghaiDayStartMs(dayKey: string, hour = 0): number {
+/** 将上海自然日 YYYY-MM-DD（可选小时与分钟）转为对应 UTC 毫秒时间戳。 */
+export function shanghaiDayStartMs(dayKey: string, hour = 0, minute = 0): number {
   const [y, m, d] = dayKey.split('-').map((v) => Number.parseInt(v, 10));
-  return Date.UTC(y, m - 1, d, hour, 0, 0, 0) - SHANGHAI_OFFSET_MS;
+  return Date.UTC(y, m - 1, d, hour, minute, 0, 0) - SHANGHAI_OFFSET_MS;
 }
 
 /** 获取指定毫秒时间戳对应的上海自然日 YYYY-MM-DD。 */
@@ -148,6 +212,135 @@ function overlapSeconds(startMs: number, endMs: number, winStartMs: number, winE
   return e > s ? Math.floor((e - s) / 1000) : 0;
 }
 
+/** 合并重叠或首尾相接的时间区间，避免连堂/重叠课重复计入重叠秒数。 */
+function mergeIntervals(intervals: TimeIntervalMs[]): TimeIntervalMs[] {
+  if (intervals.length <= 1) return intervals.filter((i) => i.endMs > i.startMs);
+  const sorted = [...intervals]
+    .filter((i) => i.endMs > i.startMs)
+    .sort((a, b) => a.startMs - b.startMs);
+  const merged: TimeIntervalMs[] = [];
+  for (const cur of sorted) {
+    const prev = merged[merged.length - 1];
+    if (prev && cur.startMs <= prev.endMs) {
+      prev.endMs = Math.max(prev.endMs, cur.endMs);
+    } else {
+      merged.push({ startMs: cur.startMs, endMs: cur.endMs });
+    }
+  }
+  return merged;
+}
+
+function parseHm(hm: string): { hour: number; minute: number } | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hm.trim());
+  if (!m) return null;
+  const hour = Number.parseInt(m[1], 10);
+  const minute = Number.parseInt(m[2], 10);
+  if (hour < 0 || hour > 24 || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
+function parseDateOnlyUtc(dateStr: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+function computeScheduleWeekNumber(
+  startDateStr: string,
+  targetDateStr: string,
+  weekStartDay: number,
+): number {
+  const start = parseDateOnlyUtc(startDateStr);
+  const target = parseDateOnlyUtc(targetDateStr);
+  if (!start || !target) return -1;
+  const startIso = start.getUTCDay() === 0 ? 7 : start.getUTCDay();
+  const offsetToWeekStart =
+    weekStartDay === 7 ? (startIso === 7 ? 0 : startIso) : startIso - 1;
+  const alignedStartMs = start.getTime() - offsetToWeekStart * DAY_MS;
+  const diffDays = Math.floor((target.getTime() - alignedStartMs) / DAY_MS);
+  return Math.floor(diffDays / 7) + 1;
+}
+
+function getIsoWeekdayOfDayKey(dayKey: string): number {
+  const d = parseDateOnlyUtc(dayKey);
+  if (!d) return 1;
+  const dow = d.getUTCDay();
+  return dow === 0 ? 7 : dow;
+}
+
+/** 展开个人课表快照在指定自然日的上课区间（合并去重）与有课节次集合。 */
+function expandPersonalScheduleDay(
+  schedule: BusyScheduleSnapshot,
+  dayKey: string,
+): { inTerm: boolean; intervals: TimeIntervalMs[]; sections: Set<number> } {
+  const sections = new Set<number>();
+  if (!schedule || !Array.isArray(schedule.courses) || schedule.courses.length === 0) {
+    return { inTerm: false, intervals: [], sections };
+  }
+  const week = computeScheduleWeekNumber(
+    schedule.startDate,
+    dayKey,
+    schedule.weekStartDay === 7 ? 7 : 1,
+  );
+  const maxWeeks = schedule.totalWeeks > 0 ? schedule.totalWeeks : 24;
+  if (week < 1 || week > maxWeeks) {
+    return { inTerm: false, intervals: [], sections };
+  }
+
+  const isoDay = getIsoWeekdayOfDayKey(dayKey);
+  const slotMap = new Map<number, { startTime: string; endTime: string }>(SWPU_DEFAULT_SLOT_MAP);
+  for (const s of schedule.slots ?? []) {
+    if (typeof s.section === 'number' && s.startTime && s.endTime) {
+      slotMap.set(s.section, { startTime: s.startTime, endTime: s.endTime });
+    }
+  }
+
+  const rawIntervals: TimeIntervalMs[] = [];
+  for (const course of schedule.courses) {
+    for (const meeting of course.meetings ?? []) {
+      if (meeting.dayOfWeek !== isoDay) continue;
+      if (!Array.isArray(meeting.weeks) || !meeting.weeks.includes(week)) continue;
+      const startSec = Math.max(1, meeting.startSection);
+      const endSec = Math.max(startSec, meeting.endSection);
+      for (let sec = startSec; sec <= endSec; sec += 1) {
+        sections.add(sec);
+      }
+      const startSlot = slotMap.get(startSec);
+      const endSlot = slotMap.get(endSec);
+      const startHm = parseHm(startSlot?.startTime ?? '08:00');
+      const endHm = parseHm(endSlot?.endTime ?? '09:35');
+      if (!startHm || !endHm) continue;
+      const sMs = shanghaiDayStartMs(dayKey, startHm.hour, startHm.minute);
+      const eMs = shanghaiDayStartMs(dayKey, endHm.hour, endHm.minute);
+      if (eMs > sMs) {
+        rawIntervals.push({ startMs: sMs, endMs: eMs });
+      }
+    }
+  }
+
+  return {
+    inTerm: true,
+    intervals: mergeIntervals(rawIntervals),
+    sections,
+  };
+}
+
+/** 计算成员在某天多个合法打卡片段与目标时间窗列表的总重叠秒数。 */
+function computeIntervalsOverlapSeconds(
+  sessions: ReadonlyArray<TimeIntervalMs>,
+  windows: ReadonlyArray<TimeIntervalMs>,
+): number {
+  if (sessions.length === 0 || windows.length === 0) return 0;
+  const mergedSessions = mergeIntervals([...sessions]);
+  let total = 0;
+  for (const s of mergedSessions) {
+    for (const w of windows) {
+      total += overlapSeconds(s.startMs, s.endMs, w.startMs, w.endMs);
+    }
+  }
+  return total;
+}
+
 /** 计算一组已满足条件的日期集合中，截止在 [anchorDay - maxEndAgeDays, anchorDay] 内的最长连续天数。 */
 function bestRecentConsecutiveStreak(
   days: Set<string>,
@@ -178,7 +371,36 @@ function bestRecentConsecutiveStreak(
   return { qualified3, currentStreak };
 }
 
-/** 将一条卡牌回执解析为跨人正/负面交互事件列表（用于「吕洞宾」称号判定）。 */
+/** 纯函数：判定某 GitHub 用户名是否在连续 requiredStreak 次版本更新中都提交了合并 PR。 */
+export function hasConsecutiveReleaseContributions(
+  releases: ReadonlyArray<TitleEngineReleaseContributor>,
+  githubUsername: string | null | undefined,
+  requiredStreak = 3,
+): { unlocked: boolean; maxStreak: number; currentStreak: number } {
+  const login = (githubUsername ?? '').trim().toLowerCase();
+  if (!login || releases.length === 0) {
+    return { unlocked: false, maxStreak: 0, currentStreak: 0 };
+  }
+  const sorted = [...releases].sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime());
+  let maxStreak = 0;
+  let currentStreak = 0;
+  for (const rel of sorted) {
+    const hit = rel.contributorLogins.some((item) => item.trim().toLowerCase() === login);
+    if (hit) {
+      currentStreak += 1;
+      if (currentStreak > maxStreak) maxStreak = currentStreak;
+    } else {
+      currentStreak = 0;
+    }
+  }
+  return {
+    unlocked: maxStreak >= requiredStreak,
+    maxStreak,
+    currentStreak,
+  };
+}
+
+/** 将一条卡牌回执解析为跨人正/负面交互事件列表（用于「吕洞宾」「龙王」称号判定）。 */
 export function extractCardInteractionsFromReceipt(receipt: {
   actorId?: string;
   at?: string;
@@ -201,6 +423,7 @@ export function extractCardInteractionsFromReceipt(receipt: {
       targetId: giftRecipientId,
       polarity: 'positive',
       atMs,
+      applied: true,
     });
   }
 
@@ -230,30 +453,107 @@ export function extractCardInteractionsFromReceipt(receipt: {
     if (effect.kind === 'time') {
       const delta = effect.deltaSeconds ?? 0;
       if (delta > 0) {
-        events.push({ actorId, targetId, polarity: 'positive', atMs });
+        events.push({
+          actorId,
+          targetId,
+          polarity: 'positive',
+          atMs,
+          applied: effect.outcome === 'applied',
+        });
         continue;
       }
       if (delta < 0) {
-        events.push({ actorId, targetId, polarity: 'negative', atMs });
+        events.push({
+          actorId,
+          targetId,
+          polarity: 'negative',
+          atMs,
+          applied: effect.outcome === 'applied',
+        });
         continue;
       }
     }
 
     if (cardName === '五谷丰登' && effect.outcome === 'applied') {
-      events.push({ actorId, targetId, polarity: 'positive', atMs });
+      events.push({ actorId, targetId, polarity: 'positive', atMs, applied: true });
       continue;
     }
 
     if (NEGATIVE_CARD_NAMES.has(cardName)) {
-      events.push({ actorId, targetId, polarity: 'negative', atMs });
+      events.push({
+        actorId,
+        targetId,
+        polarity: 'negative',
+        atMs,
+        applied: effect.outcome === 'applied',
+      });
     }
   }
 
   return events;
 }
 
+/** 从一条卡牌回执中提取「我赌你的枪里没有子弹」使用胜负事件（用于「赌王」「求求你戒赌吧」）。 */
+export function extractGambleEventFromReceipt(receipt: {
+  actorId?: string;
+  at?: string;
+  result?: Record<string, unknown> | null;
+}): { actorId: string; event: TitleEngineGambleEvent } | null {
+  const actorId = receipt.actorId;
+  if (!actorId || !receipt.at) return null;
+  const atMs = Date.parse(receipt.at);
+  if (Number.isNaN(atMs)) return null;
+
+  const result = receipt.result as
+    | {
+        action?: string;
+        actionCard?: { id?: string; name?: string };
+        effects?: Array<{
+          kind?: string;
+          deltaSeconds?: number;
+          detail?: string;
+        }>;
+      }
+    | undefined
+    | null;
+
+  if (!result || result.action !== 'use') return null;
+  const cardId = result.actionCard?.id ?? '';
+  const cardName = result.actionCard?.name ?? '';
+  const isGambleCard =
+    cardName === '我赌你的枪里没有子弹' || cardId === 'n-gamble' || cardId === 'card-03';
+  if (!isGambleCard) return null;
+
+  const effects = Array.isArray(result.effects) ? result.effects : [];
+  const judgement = effects.find((e) => e.kind === 'judgement');
+  let won: boolean | null = null;
+  if (judgement?.detail) {
+    if (judgement.detail.includes('幸运')) won = true;
+    else if (judgement.detail.includes('不利')) won = false;
+  }
+  if (won === null) {
+    const timeEff = effects.find((e) => e.kind === 'time');
+    if (timeEff && typeof timeEff.deltaSeconds === 'number') {
+      won = timeEff.deltaSeconds > 0;
+    }
+  }
+  if (won === null) return null;
+  return { actorId, event: { atMs, won } };
+}
+
+/** 判断一条抽卡回执是否触发了 SSR 大保底（用于「自古枪兵幸运e」）。 */
+export function hasSsrPityInReceipt(receipt: {
+  actorId?: string;
+  result?: Record<string, unknown> | null;
+}): boolean {
+  if (!receipt.actorId || !receipt.result) return false;
+  const result = receipt.result as { action?: string; ssrPity?: boolean };
+  return result.action === 'draw' && result.ssrPity === true;
+}
+
 interface UserDailyMetrics {
   dailySeconds: Map<string, number>;
+  dailyIntervals: Map<string, TimeIntervalMs[]>;
   nightOwlDays: Set<string>;
   earlyBirdDays: Set<string>;
   overnightSeconds: Map<string, number>;
@@ -264,6 +564,7 @@ interface UserDailyMetrics {
 function emptyMetrics(): UserDailyMetrics {
   return {
     dailySeconds: new Map(),
+    dailyIntervals: new Map(),
     nightOwlDays: new Set(),
     earlyBirdDays: new Set(),
     overnightSeconds: new Map(),
@@ -272,7 +573,166 @@ function emptyMetrics(): UserDailyMetrics {
   };
 }
 
-/** 评估全团队所有成员的 11 项自动称号、展示亮牌与进度文案。 */
+type ScheduleResolveMode = 'personal' | 'grade-fallback' | 'standard-fallback';
+
+interface ResolvedClassDay {
+  dayKey: string;
+  intervals: TimeIntervalMs[];
+  totalClassSec: number;
+}
+
+interface ResolvedClassWeek {
+  mode: ScheduleResolveMode;
+  days: ResolvedClassDay[];
+}
+
+interface ClassAttendanceWeekEval {
+  mode: ScheduleResolveMode;
+  classDays: number;
+  honestHitDays: number;
+  honestQualified: boolean;
+  totalClassOverlapSec: number;
+}
+
+/** 统一解析某成员在指定一周（7 天）内的每日上课时间段：个人课表 → 同年级课表 → SWPU 标准作息。 */
+function resolveClassWindowsForWeek(
+  member: TitleEngineMember,
+  weekDayKeys: string[],
+  gradePeerSchedules: ReadonlyArray<BusyScheduleSnapshot>,
+): ResolvedClassWeek {
+  // 1. 优先使用成员已导入的个人课表
+  const personal = member.scheduleSnapshot;
+  if (personal && Array.isArray(personal.courses) && personal.courses.length > 0) {
+    let anyInTerm = false;
+    const days: ResolvedClassDay[] = [];
+    for (const dKey of weekDayKeys) {
+      const expanded = expandPersonalScheduleDay(personal, dKey);
+      if (expanded.inTerm) anyInTerm = true;
+      const totalClassSec = expanded.intervals.reduce(
+        (acc, it) => acc + Math.floor((it.endMs - it.startMs) / 1000),
+        0,
+      );
+      if (totalClassSec > 0) {
+        days.push({ dayKey: dKey, intervals: expanded.intervals, totalClassSec });
+      }
+    }
+    if (anyInTerm) {
+      return { mode: 'personal', days };
+    }
+  }
+
+  // 2. 第一级兜底：同年级已导入课表的同学（至少 2 人）按半数以上高频有课节次推断
+  if (gradePeerSchedules.length >= 2) {
+    let anyInTermPeer = false;
+    const days: ResolvedClassDay[] = [];
+    for (const dKey of weekDayKeys) {
+      const sectionCounts = new Map<number, number>();
+      let inTermCount = 0;
+      for (const peerSched of gradePeerSchedules) {
+        const exp = expandPersonalScheduleDay(peerSched, dKey);
+        if (!exp.inTerm) continue;
+        inTermCount += 1;
+        for (const sec of exp.sections) {
+          sectionCounts.set(sec, (sectionCounts.get(sec) ?? 0) + 1);
+        }
+      }
+      if (inTermCount < 2) continue;
+      anyInTermPeer = true;
+      const minPeerVotes = Math.ceil(inTermCount / 2);
+      const inferredIntervals: TimeIntervalMs[] = [];
+      for (const [sec, count] of sectionCounts.entries()) {
+        if (count < minPeerVotes) continue;
+        const slot = SWPU_DEFAULT_SLOT_MAP.get(sec);
+        if (!slot) continue;
+        const sHm = parseHm(slot.startTime);
+        const eHm = parseHm(slot.endTime);
+        if (!sHm || !eHm) continue;
+        const sMs = shanghaiDayStartMs(dKey, sHm.hour, sHm.minute);
+        const eMs = shanghaiDayStartMs(dKey, eHm.hour, eHm.minute);
+        if (eMs > sMs) inferredIntervals.push({ startMs: sMs, endMs: eMs });
+      }
+      const merged = mergeIntervals(inferredIntervals);
+      const totalClassSec = merged.reduce(
+        (acc, it) => acc + Math.floor((it.endMs - it.startMs) / 1000),
+        0,
+      );
+      if (totalClassSec > 0) {
+        days.push({ dayKey: dKey, intervals: merged, totalClassSec });
+      }
+    }
+    if (anyInTermPeer && days.length > 0) {
+      return { mode: 'grade-fallback', days };
+    }
+  }
+
+  // 3. 第二级兜底：西南石油大学标准工作日白昼教学时段（周一至周五 08:00–12:15 & 14:30–17:55）
+  const days: ResolvedClassDay[] = [];
+  for (const dKey of weekDayKeys) {
+    const weekday = getIsoWeekdayOfDayKey(dKey);
+    if (weekday > 5) continue;
+    const stdWindows: TimeIntervalMs[] = SWPU_STANDARD_DAYTIME_WINDOWS.map((w) => {
+      const sHm = parseHm(w.startHm)!;
+      const eHm = parseHm(w.endHm)!;
+      return {
+        startMs: shanghaiDayStartMs(dKey, sHm.hour, sHm.minute),
+        endMs: shanghaiDayStartMs(dKey, eHm.hour, eHm.minute),
+      };
+    });
+    const totalClassSec = stdWindows.reduce(
+      (acc, it) => acc + Math.floor((it.endMs - it.startMs) / 1000),
+      0,
+    );
+    days.push({ dayKey: dKey, intervals: stdWindows, totalClassSec });
+  }
+  return { mode: 'standard-fallback', days };
+}
+
+/** 同时评估成员在指定一周的「最老实之人」与「三好学生」课中打卡重叠情况。 */
+function evaluateClassAttendanceWeek(
+  member: TitleEngineMember,
+  weekDayKeys: string[],
+  metrics: UserDailyMetrics,
+  gradePeerSchedules: ReadonlyArray<BusyScheduleSnapshot>,
+  isCurrentWeek: boolean,
+): ClassAttendanceWeekEval {
+  const resolved = resolveClassWindowsForWeek(member, weekDayKeys, gradePeerSchedules);
+  let honestHitDays = 0;
+  let totalClassOverlapSec = 0;
+
+  for (const day of resolved.days) {
+    const overlapSec = computeIntervalsOverlapSeconds(
+      metrics.dailyIntervals.get(day.dayKey) ?? [],
+      day.intervals,
+    );
+    totalClassOverlapSec += overlapSec;
+
+    const thresholdSec =
+      resolved.mode === 'standard-fallback'
+        ? 5400
+        : Math.min(2700, Math.max(900, Math.floor(day.totalClassSec * 0.5)));
+    if (overlapSec >= thresholdSec) {
+      honestHitDays += 1;
+    }
+  }
+
+  const classDays = resolved.days.length;
+  const honestQualified =
+    resolved.mode === 'standard-fallback'
+      ? classDays >= 5 && honestHitDays >= 5
+      : classDays > 0 &&
+        honestHitDays === classDays &&
+        honestHitDays >= (isCurrentWeek ? Math.max(3, classDays) : 1);
+
+  return {
+    mode: resolved.mode,
+    classDays,
+    honestHitDays,
+    honestQualified,
+    totalClassOverlapSec,
+  };
+}
+
+/** 评估全团队所有成员的 22 项自动称号、展示亮牌与进度文案。 */
 export function evaluateTeamTitles(
   input: EvaluateTeamTitlesInput,
 ): Map<string, MemberTitleEvaluation> {
@@ -303,8 +763,18 @@ export function evaluateTeamTitles(
   );
 
   const metricsByUser = new Map<string, UserDailyMetrics>();
+  const schedulesByGrade = new Map<number, BusyScheduleSnapshot[]>();
   for (const member of input.members) {
     metricsByUser.set(member.id, emptyMetrics());
+    if (
+      member.scheduleSnapshot &&
+      Array.isArray(member.scheduleSnapshot.courses) &&
+      member.scheduleSnapshot.courses.length > 0
+    ) {
+      const list = schedulesByGrade.get(member.enrollYear) ?? [];
+      list.push(member.scheduleSnapshot);
+      schedulesByGrade.set(member.enrollYear, list);
+    }
   }
 
   for (const session of input.sessions) {
@@ -343,7 +813,7 @@ export function evaluateTeamTitles(
       metrics.earlyBirdDays.add(startDayKey);
     }
 
-    // 按上海自然日拆分区间，统计日时长、夜猫子（21:00 后仍在岗）与 00:00~09:00 耐通窗口
+    // 按上海自然日拆分区间，统计日时长、课表重叠片段、夜猫子（21:00 后仍在岗）与 00:00~09:00 耐通窗口
     const endDayKey = shanghaiDayKeyOfMs(effectiveEndMs);
     let cursorDayKey = startDayKey;
     let guard = 0;
@@ -352,6 +822,14 @@ export function evaluateTeamTitles(
       guard += 1;
       const dStartMs = shanghaiDayStartMs(cursorDayKey, 0);
       const dEndMs = dStartMs + DAY_MS;
+
+      const clippedStart = Math.max(startMs, dStartMs);
+      const clippedEnd = Math.min(effectiveEndMs, dEndMs);
+      if (clippedEnd > clippedStart) {
+        const list = metrics.dailyIntervals.get(cursorDayKey) ?? [];
+        list.push({ startMs: clippedStart, endMs: clippedEnd });
+        metrics.dailyIntervals.set(cursorDayKey, list);
+      }
 
       const segSec =
         effectiveEndMs > startMs
@@ -395,8 +873,12 @@ export function evaluateTeamTitles(
     }
   }
 
-  // 吕洞宾：本周 A 对 B 使用过正面卡，随后 B 对 A 使用过负面卡 -> A 解锁
+  // 吕洞宾 + 龙王：
+  // 1) 本周 A 对 B 使用过正面卡，随后 B 对 A 使用过负面卡 -> A 解锁「吕洞宾」，记录 B 为触发者及触发时间；
+  // 2) 之后 A 成功对 B 施加负面效果卡（applied !== false）-> A 解锁「龙王」。
   const luDongbinUsers = new Set<string>();
+  const luDongbinCulpritsByVictim = new Map<string, Map<string, number>>();
+  const dragonKingUsers = new Set<string>();
   const sortedInteractions = [...input.currentWeekCardInteractions].sort((a, b) => a.atMs - b.atMs);
   const earliestPositiveAt = new Map<string, number>();
   for (const evt of sortedInteractions) {
@@ -407,10 +889,26 @@ export function evaluateTeamTitles(
         earliestPositiveAt.set(pairKey, evt.atMs);
       }
     } else if (evt.polarity === 'negative') {
+      // 检查是否构成对吕洞宾触发者的成功复仇（龙王）
+      const culprits = luDongbinCulpritsByVictim.get(evt.actorId);
+      const betrayedAt = culprits?.get(evt.targetId);
+      if (betrayedAt !== undefined && evt.atMs > betrayedAt && evt.applied !== false) {
+        dragonKingUsers.add(evt.actorId);
+      }
+
+      // 检查是否触发吕洞宾
       const reversePairKey = `${evt.targetId}->${evt.actorId}`;
       const helpedAt = earliestPositiveAt.get(reversePairKey);
       if (helpedAt !== undefined && evt.atMs > helpedAt) {
         luDongbinUsers.add(evt.targetId);
+        let map = luDongbinCulpritsByVictim.get(evt.targetId);
+        if (!map) {
+          map = new Map();
+          luDongbinCulpritsByVictim.set(evt.targetId, map);
+        }
+        if (!map.has(evt.actorId)) {
+          map.set(evt.actorId, evt.atMs);
+        }
       }
     }
   }
@@ -425,12 +923,20 @@ export function evaluateTeamTitles(
     return comprehensiveDurationSeconds(recorded, manual, ent);
   };
 
+  const totalCatalogCards = input.totalCatalogCards ?? DEFAULT_CARD_CATALOG_SIZE;
+  const releaseContributors = input.releaseContributors ?? [];
   const results = new Map<string, MemberTitleEvaluation>();
   const remainingWeekSeconds = Math.max(0, Math.floor((currentWeekEndMs - nowMs) / 1000));
 
   for (const member of input.members) {
     const metrics = metricsByUser.get(member.id)!;
     const goalSeconds = weeklyGoalSeconds(member.enrollYear);
+    const persistentSet = new Set(member.persistentTitleIds ?? []);
+    const hiddenSet = new Set(member.hiddenTitleIds ?? []);
+
+    const prev1Recorded = metrics.recordedByWeek.get(prevWeek1Key) ?? 0;
+    const curWeekRecorded =
+      (metrics.recordedByWeek.get(currentWeekKey) ?? 0) + metrics.activeCurrentWeekSeconds;
 
     // 1. 打卡之星
     const topGradeDays = new Set<string>();
@@ -511,18 +1017,125 @@ export function evaluateTeamTitles(
           : remainingGoalSeconds / remainingWeekSeconds;
     const lovesickActive = remainingGoalSeconds > 0 && pressureRatio >= 0.3;
 
+    // 14. 差一步美满（按年级目标自适应，纯真实打卡：goal - 1h < prev1Recorded < goal）
+    const almostPerfectUnlocked =
+      prev1Recorded > goalSeconds - ONE_HOUR_SECONDS && prev1Recorded < goalSeconds;
+
+    // 15 & 16. 赌王 / 求求你戒赌吧（跨周累计、达成后长期保留）
+    const gambleEvents = [...(input.gambleEventsByUser?.get(member.id) ?? [])].sort(
+      (a, b) => a.atMs - b.atMs,
+    );
+    let maxWinStreak = 0;
+    let maxLoseStreak = 0;
+    let curWinStreak = 0;
+    let curLoseStreak = 0;
+    for (const ge of gambleEvents) {
+      if (ge.won) {
+        curWinStreak += 1;
+        curLoseStreak = 0;
+        if (curWinStreak > maxWinStreak) maxWinStreak = curWinStreak;
+      } else {
+        curLoseStreak += 1;
+        curWinStreak = 0;
+        if (curLoseStreak > maxLoseStreak) maxLoseStreak = curLoseStreak;
+      }
+    }
+    const gambleKingUnlocked = maxWinStreak >= 5 || persistentSet.has('gamble-king');
+    const quitGamblingUnlocked = maxLoseStreak >= 5 || persistentSet.has('quit-gambling');
+
+    // 17. 龙王
+    const dragonKingUnlocked = dragonKingUsers.has(member.id);
+
+    // 18. 快思了（上周纯真实打卡为 0 且非本周新成员，自动强制亮牌）
+    const almostGoneActive = existedLastWeek && prev1Recorded === 0;
+
+    // 19. 贡献王（连续 3 次版本更新提交合并 PR，长期保留）
+    const contribRes = hasConsecutiveReleaseContributions(
+      releaseContributors,
+      member.githubUsername,
+      3,
+    );
+    const contributorKingUnlocked = contribRes.unlocked || persistentSet.has('contributor-king');
+
+    // 20. 自古枪兵幸运e（抽 SSR 触发大保底，长期保留）
+    const lancerLuckEUnlocked =
+      (input.ssrPityUsers?.has(member.id) ?? false) || persistentSet.has('lancer-luck-e');
+
+    // 21 & 22. 收集者 / 收集之王（图鉴去重种类数，长期保留）
+    const discoveredCount = member.discoveredCardCount ?? 0;
+    const cardCollectorUnlocked = discoveredCount >= 5 || persistentSet.has('card-collector');
+    const collectionKingUnlocked =
+      discoveredCount >= totalCatalogCards || persistentSet.has('collection-king');
+
+    // 11 & 23. 三好学生 & 最老实之人（共用 PR #13 课表快照 + 同年级课表 + 标准教学作息三级评估）
+    const gradePeers = schedulesByGrade.get(member.enrollYear) ?? [];
+    const curClassEval = evaluateClassAttendanceWeek(
+      member,
+      currentWeekDayKeys,
+      metrics,
+      gradePeers,
+      true,
+    );
+    const prevClassEval = evaluateClassAttendanceWeek(
+      member,
+      prevWeek1DayKeys,
+      metrics,
+      gradePeers,
+      false,
+    );
+    const mostHonestUnlocked = curClassEval.honestQualified || prevClassEval.honestQualified;
+    // 三好学生：上周有有效打卡（≥ 1h，避免一整周不打卡误拿）且上周所有上课期间重叠 ≤ 5 分钟（零课中打卡）
+    const GOOD_STUDENT_GRACE_SECONDS = 300;
+    const goodStudentUnlocked =
+      prev1Recorded >= ONE_HOUR_SECONDS &&
+      prevClassEval.classDays > 0 &&
+      prevClassEval.totalClassOverlapSec <= GOOD_STUDENT_GRACE_SECONDS;
+    const classFallbackLabel =
+      curClassEval.mode === 'grade-fallback'
+        ? '未导课表（按同年级课表兜底）· '
+        : curClassEval.mode === 'standard-fallback'
+          ? '未导课表（按标准教学时段兜底）· '
+          : '';
+
+    // 24. 神（单周纯真实打卡时长超过 50 小时）
+    const bestRecordedWeekSec = Math.max(curWeekRecorded, prev1Recorded);
+    const punchGodUnlocked =
+      curWeekRecorded > FIFTY_HOURS_SECONDS || prev1Recorded > FIFTY_HOURS_SECONDS;
+
+    const goalHours = Math.round(goalSeconds / 3600);
+
     const statusById: Record<string, { unlocked: boolean; progressText?: string }> = {
+      'punch-god': {
+        unlocked: punchGodUnlocked,
+        progressText: punchGodUnlocked
+          ? `已封神（最高单周纯打卡 ${(bestRecordedWeekSec / 3600).toFixed(1)}h）`
+          : `本周纯打卡 ${(curWeekRecorded / 3600).toFixed(1)}h / 50h`,
+      },
       'punch-star': {
         unlocked: punchStarRes.qualified3,
         progressText: punchStarRes.qualified3
           ? '已达成连续 3 天年级榜首'
           : `当前连霸 ${Math.min(3, punchStarRes.currentStreak)}/3 天`,
       },
+      'contributor-king': {
+        unlocked: contributorKingUnlocked,
+        progressText: contributorKingUnlocked
+          ? '已达成连续 3 次发版合并 PR（长期保留）'
+          : !member.githubUsername
+            ? '未绑定 GitHub 账号（绑定后自动统计 PR）'
+            : `当前连续参与 ${Math.min(3, contribRes.currentStreak)}/3 个版本`,
+      },
       'monthly-perfect': {
         unlocked: monthlyPerfectUnlocked,
         progressText: monthlyPerfectUnlocked
           ? '已达成整月全勤'
           : `本月已达标 ${curMonthDaysOver1h}/${curMonthDaysCount} 天`,
+      },
+      'collection-king': {
+        unlocked: collectionKingUnlocked,
+        progressText: collectionKingUnlocked
+          ? `已集齐全部 ${totalCatalogCards} 种卡片（长期保留）`
+          : `当前已收集 ${Math.min(totalCatalogCards, discoveredCount)}/${totalCatalogCards} 种卡片`,
       },
       'general-jin': {
         unlocked: generalJinUnlocked,
@@ -536,11 +1149,39 @@ export function evaluateTeamTitles(
           ? '已达成连续 3 天通宵战绩'
           : `当前连续 ${Math.min(3, allNighterRes.currentStreak)}/3 天`,
       },
+      'gamble-king': {
+        unlocked: gambleKingUnlocked,
+        progressText: gambleKingUnlocked
+          ? '已达成 5 连胜赌神战绩（长期保留）'
+          : `当前连胜 ${Math.min(5, curWinStreak)}/5 次（历史最高 ${Math.min(5, maxWinStreak)}/5）`,
+      },
+      'most-honest': {
+        unlocked: mostHonestUnlocked,
+        progressText: mostHonestUnlocked
+          ? `${classFallbackLabel}已达成每天上课期间猛猛打卡`
+          : `${classFallbackLabel}本周 ${curClassEval.honestHitDays}/${curClassEval.classDays || 5} 个上课日达标`,
+      },
+      'good-student': {
+        unlocked: goodStudentUnlocked,
+        progressText: goodStudentUnlocked
+          ? `${classFallbackLabel}上周上课期间零打卡，荣获三好学生`
+          : curClassEval.totalClassOverlapSec > GOOD_STUDENT_GRACE_SECONDS
+            ? `${classFallbackLabel}本周已在课中打卡 ${Math.round(curClassEval.totalClassOverlapSec / 60)} 分钟`
+            : `${classFallbackLabel}本周目前课中零打卡（需整周保持且周打卡 ≥ 1h）`,
+      },
       'weekly-perfect': {
         unlocked: weeklyPerfectUnlocked,
         progressText: weeklyPerfectUnlocked
           ? '已达成整周每日 1 小时'
           : `本周 ${curWeekDaysOver1h}/7 天超过 1 小时`,
+      },
+      'dragon-king': {
+        unlocked: dragonKingUnlocked,
+        progressText: dragonKingUnlocked
+          ? '本周已对吕洞宾触发者成功反击'
+          : luDongbinUnlocked
+            ? '已触发吕洞宾，等待成功反击施害者'
+            : '需先获得「吕洞宾」称号再成功反击',
       },
       'deadline-master': {
         unlocked: deadlineMasterUnlocked,
@@ -548,11 +1189,23 @@ export function evaluateTeamTitles(
           ? '已连续 2 周精准压线'
           : prev1Hit
             ? '上周已压线（1/2 周）'
-            : `目标区间 ${Math.round(goalSeconds / 3600)}–${Math.round(goalSeconds / 3600) + 1} 小时`,
+            : `目标区间 ${goalHours}–${goalHours + 1} 小时`,
       },
       'lu-dongbin': {
         unlocked: luDongbinUnlocked,
         progressText: luDongbinUnlocked ? '本周惨遭恩将仇报' : '本周尚未触发卡牌背刺事件',
+      },
+      'almost-perfect': {
+        unlocked: almostPerfectUnlocked,
+        progressText: almostPerfectUnlocked
+          ? `上周纯打卡 ${(prev1Recorded / 3600).toFixed(2)}h，差一步满 ${goalHours}h`
+          : `目标区间 ${goalHours - 1}–${goalHours}h（纯真实打卡）`,
+      },
+      'lancer-luck-e': {
+        unlocked: lancerLuckEUnlocked,
+        progressText: lancerLuckEUnlocked
+          ? '已触发过 SSR 大保底（长期保留）'
+          : '尚未触发 70 抽 SSR 大保底',
       },
       'early-bird': {
         unlocked: earlyBirdRes.qualified3,
@@ -566,6 +1219,18 @@ export function evaluateTeamTitles(
           ? '已连续 3 天 21 点后在岗'
           : `当前连续 ${Math.min(3, nightOwlRes.currentStreak)}/3 天`,
       },
+      'card-collector': {
+        unlocked: cardCollectorUnlocked,
+        progressText: cardCollectorUnlocked
+          ? `已收集 ${discoveredCount} 种卡片（长期保留）`
+          : `当前已收集 ${Math.min(5, discoveredCount)}/5 种卡片`,
+      },
+      'quit-gambling': {
+        unlocked: quitGamblingUnlocked,
+        progressText: quitGamblingUnlocked
+          ? '已达成 5 连败戒赌预警（长期保留，可关闭）'
+          : `当前连败 ${Math.min(5, curLoseStreak)}/5 次（历史最高 ${Math.min(5, maxLoseStreak)}/5）`,
+      },
       lovesick: {
         unlocked: lovesickActive,
         progressText:
@@ -573,18 +1238,33 @@ export function evaluateTeamTitles(
             ? '本周已达标，毫无相思'
             : `当前欠账占比 ${Math.min(100, Math.round(pressureRatio * 100))}%（≥ 30% 触发）`,
       },
+      'almost-gone': {
+        unlocked: almostGoneActive,
+        progressText: almostGoneActive
+          ? '上周连续一整周 0 打卡记录'
+          : existedLastWeek
+            ? '上周已有有效打卡记录'
+            : '新成员首周免挂预警',
+      },
       'purple-egg': {
         unlocked: purpleEggActive,
         progressText: purpleEggActive
-          ? `上周完成 ${(prev1Total / 3600).toFixed(1)}h / ${Math.round(goalSeconds / 3600)}h`
+          ? `上周完成 ${(prev1Total / 3600).toFixed(1)}h / ${goalHours}h`
           : existedLastWeek
             ? '上周已顺利达标'
             : '新成员首周免挂紫蛋',
       },
     };
 
+    const newlyUnlockedPersistentTitleIds = TITLE_CATALOG.filter(
+      (def) => def.persistent && statusById[def.id]?.unlocked && !persistentSet.has(def.id),
+    ).map((def) => def.id);
+
+    const isHidden = (defId: string, hideable?: boolean): boolean =>
+      Boolean(hideable && hiddenSet.has(defId));
+
     const unlockedNonForced = TITLE_CATALOG.filter(
-      (def) => !def.forced && statusById[def.id]?.unlocked,
+      (def) => !def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
     ).sort((a, b) => b.priority - a.priority);
 
     const requestedEquip = member.equippedTitleId ?? null;
@@ -594,7 +1274,7 @@ export function evaluateTeamTitles(
     const activePrimary = validEquipped ?? unlockedNonForced[0] ?? null;
 
     const activeForced = TITLE_CATALOG.filter(
-      (def) => def.forced && statusById[def.id]?.unlocked,
+      (def) => def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
     ).sort((a, b) => b.priority - a.priority);
 
     const displayTitles: MemberTitleBadge[] = [
@@ -604,18 +1284,23 @@ export function evaluateTeamTitles(
 
     const catalog: TitleEvaluationItem[] = TITLE_CATALOG.map((def) => {
       const st = statusById[def.id] ?? { unlocked: false };
+      const hidden = isHidden(def.id, def.hideable);
       return {
         ...toMemberTitleBadge(def),
         unlocked: st.unlocked,
         equipped: Boolean(
-          (activePrimary && activePrimary.id === def.id) || (def.forced && st.unlocked),
+          !hidden &&
+            ((activePrimary && activePrimary.id === def.id) || (def.forced && st.unlocked)),
         ),
+        ...(def.hideable ? { hidden } : {}),
         progressText: st.progressText,
       };
     });
 
     results.set(member.id, {
       equippedTitleId: validEquipped?.id ?? null,
+      hiddenTitleIds: [...hiddenSet],
+      newlyUnlockedPersistentTitleIds,
       displayTitles,
       catalog,
     });

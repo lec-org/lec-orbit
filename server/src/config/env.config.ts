@@ -80,6 +80,7 @@ const RawEnvSchema = z.object({
   MEET_JWT_SECRET: envStr(''),
 
   GITHUB_TOKEN: envStr(''),
+  ORBIT_GITHUB_REPO: envStr('lec-org/lec-orbit'),
 
   // Nakama 游戏联机 BaaS 接入配置（内网换票 + 公网 SDK 连接端点）
   NAKAMA_INTERNAL_URL: envStr('http://nakama.lec-orbit-production.svc.cluster.local:7350'),
@@ -154,6 +155,7 @@ export interface AppConfig {
   assessmentStartWeek: string;
 
   githubToken: string;
+  orbitGithubRepo: string;
 
   nakama: {
     internalUrl: string;
@@ -234,6 +236,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     assessmentStartWeek: parsed.ASSESSMENT_START_WEEK,
 
     githubToken: parsed.GITHUB_TOKEN,
+    orbitGithubRepo: parsed.ORBIT_GITHUB_REPO,
 
     nakama: {
       internalUrl: parsed.NAKAMA_INTERNAL_URL.replace(/\/+$/, ''),
