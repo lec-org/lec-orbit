@@ -146,6 +146,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle('orbit:auth:signInWithEmbeddedWindow', () =>
     authService.signInWithEmbeddedWindow(windowManager.getMainWindow()),
   );
+  ipcMain.handle('orbit:auth:cancelExternalSignIn', () => {
+    authService.cancelExternalSignIn();
+  });
   ipcMain.handle('orbit:auth:getApiToken', (_e, rawTarget) => {
     const target = z.enum(['punch', 'orbit']).parse(rawTarget);
     return authService.getApiToken(target);

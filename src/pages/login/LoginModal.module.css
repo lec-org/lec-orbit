@@ -85,3 +85,35 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.dividerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0;
+}
+
+.dividerLine {
+  flex: 1;
+  height: 1px;
+  background: var(--orbit-border);
+}
+
+.dividerText {
+  font-size: 11.5px;
+  color: var(--orbit-text-muted);
+}
+
+.browserWaitBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--orbit-text);
+  background: rgba(10, 132, 255, 0.09);
+  border: 1px solid rgba(10, 132, 255, 0.22);
+}

@@ -356,6 +356,7 @@ export interface OrbitBridge {
     signInWithPassword: (input: PasswordSignInInput) => Promise<SignInStepResult>;
     verifyMfa: (input: MfaVerifyInput) => Promise<SignInStepResult>;
     signInWithEmbeddedWindow: () => Promise<SignInStepResult>;
+    cancelExternalSignIn: () => Promise<void>;
     getApiToken: (target: 'punch' | 'orbit') => Promise<string | null>;
     pickAndUploadAvatar: () => Promise<AccountActionResult>;
     updateAvatarUrl: (input: UpdateAvatarUrlInput) => Promise<AccountActionResult>;

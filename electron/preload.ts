@@ -37,6 +37,7 @@ const bridge: OrbitBridge = {
       ipcRenderer.invoke('orbit:auth:signInWithPassword', input),
     verifyMfa: (input: MfaVerifyInput) => ipcRenderer.invoke('orbit:auth:verifyMfa', input),
     signInWithEmbeddedWindow: () => ipcRenderer.invoke('orbit:auth:signInWithEmbeddedWindow'),
+    cancelExternalSignIn: () => ipcRenderer.invoke('orbit:auth:cancelExternalSignIn'),
     getApiToken: (target: 'punch' | 'orbit') =>
       ipcRenderer.invoke('orbit:auth:getApiToken', target),
     pickAndUploadAvatar: () => ipcRenderer.invoke('orbit:auth:pickAndUploadAvatar'),

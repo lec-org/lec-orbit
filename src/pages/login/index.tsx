@@ -1,7 +1,8 @@
-/** Orbit 登录弹窗：原生账号密码登录，内置 MFA 两步验证与内嵌安全窗兜底。 */
+/** Orbit 登录弹窗：原生账号密码登录，内置 MFA 两步验证与系统浏览器 OAuth PKCE 快捷登录（支持复用 GitHub / 飞书会话）。 */
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import { Button, Dialog, Input, Message } from '@lec-space/liquidglass';
 import { User } from '@lec-space/icons';
+import { ExternalLink, X } from 'lucide-react';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { useOrbitStore } from '@/stores/useOrbitStore';
@@ -22,13 +23,18 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
   const [mfaMethod, setMfaMethod] = useState<'totp' | 'backup_code'>('totp');
   const [mfaCode, setMfaCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [waitingBrowser, setWaitingBrowser] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && !handle && lastLoginHandle) {
       setHandle(lastLoginHandle);
     }
-  }, [open, handle, lastLoginHandle]);
+    if (!open && waitingBrowser) {
+      setWaitingBrowser(false);
+      void getOrbitClient().auth.cancelExternalSignIn();
+    }
+  }, [open, handle, lastLoginHandle, waitingBrowser]);
 
   const handlePasswordSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -88,10 +94,12 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
     setError(res.message);
   };
 
-  const handleEmbeddedFallback = async () => {
+  const handleBrowserSignIn = async () => {
+    setWaitingBrowser(true);
     setSubmitting(true);
     setError(null);
     const res = await getOrbitClient().auth.signInWithEmbeddedWindow();
+    setWaitingBrowser(false);
     setSubmitting(false);
     if (res.status === 'authenticated') {
       setAuthState(res.auth);
@@ -103,15 +111,26 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
       });
       return;
     }
-    if (res.status === 'error') {
+    if (res.status === 'error' && res.message !== '已取消浏览器登录。') {
       setError(res.message);
     }
+  };
+
+  const handleCancelBrowserSignIn = () => {
+    setWaitingBrowser(false);
+    setSubmitting(false);
+    void getOrbitClient().auth.cancelExternalSignIn();
   };
 
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && waitingBrowser) {
+          handleCancelBrowserSignIn();
+        }
+        onOpenChange(nextOpen);
+      }}
       size="small"
       title={
         <div className={styles.titleRow}>
@@ -147,20 +166,46 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
             />
           </label>
           {error && <Message tone="error">{error}</Message>}
+          {waitingBrowser && (
+            <div className={styles.browserWaitBox}>
+              <span>已在系统浏览器打开登录页，完成授权后将自动返回 Orbit…</span>
+              <Button
+                variant="glass"
+                size="small"
+                type="button"
+                icon={<X size={13} />}
+                onClick={handleCancelBrowserSignIn}
+              >
+                取消
+              </Button>
+            </div>
+          )}
           <div className={styles.actions}>
-            <Button variant="filled" type="submit" loading={submitting} className={styles.primaryBtn}>
+            <Button
+              variant="filled"
+              type="submit"
+              loading={submitting && !waitingBrowser}
+              disabled={waitingBrowser}
+              className={styles.primaryBtn}
+            >
               登录
             </Button>
-          </div>
-          <div className={styles.footerRow}>
-            <button
+            <div className={styles.dividerRow}>
+              <span className={styles.dividerLine} />
+              <span className={styles.dividerText}>或</span>
+              <span className={styles.dividerLine} />
+            </div>
+            <Button
+              variant="glass"
               type="button"
-              className={styles.fallbackLink}
-              disabled={submitting}
-              onClick={handleEmbeddedFallback}
+              icon={<ExternalLink size={14} />}
+              loading={waitingBrowser}
+              disabled={submitting && !waitingBrowser}
+              className={styles.primaryBtn}
+              onClick={() => void handleBrowserSignIn()}
             >
-              注册 / 备用登录
-            </button>
+              浏览器快捷登录（GitHub / 飞书 / 注册）
+            </Button>
           </div>
         </form>
       ) : (
