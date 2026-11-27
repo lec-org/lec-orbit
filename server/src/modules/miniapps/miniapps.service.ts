@@ -111,9 +111,9 @@ function isPendingRelease(version: MiniAppVersionEntity): boolean {
   return version.channel === 'release' && version.status === 'pending';
 }
 
-function isDeletableGame(app: MiniAppEntity, hasPreview: boolean): boolean {
+function isDeletableGame(app: MiniAppEntity): boolean {
   return app.type === 'minigame' &&
-    (app.status === 'suspended' || (app.status === 'draft' && !app.activeVersionId && hasPreview));
+    (app.status === 'suspended' || (app.status === 'draft' && !app.activeVersionId));
 }
 
 function versionMetadata(app: MiniAppEntity, version?: MiniAppVersionEntity) {
@@ -303,13 +303,11 @@ export class MiniAppsService {
     const pendingByApp = new Map<string, MiniAppVersionEntity>();
     const withdrawnByApp = new Map<string, MiniAppVersionEntity>();
     const approvedSeen = new Set<string>();
-    const previewApps = new Set<string>();
 
     for (const v of versions) {
       versionById.set(v.id, v);
       if (!latestByApp.has(v.appId)) latestByApp.set(v.appId, v);
       if (v.status === 'approved') approvedSeen.add(v.appId);
-      if (v.channel === 'preview') previewApps.add(v.appId);
       if (isPendingRelease(v) && !approvedSeen.has(v.appId) && !pendingByApp.has(v.appId)) pendingByApp.set(v.appId, v);
       if (v.channel === 'release' && v.status === 'withdrawn' && !withdrawnByApp.has(v.appId)) {
         withdrawnByApp.set(v.appId, v);
@@ -335,7 +333,7 @@ export class MiniAppsService {
         else if (a.status === 'suspended' && active?.status === 'approved') recovery = active;
       }
       const item = toCatalogDTO(a, active, latest, pending, recovery);
-      if (isOwner && !pending && isDeletableGame(a, previewApps.has(a.id))) item.canDeleteGame = true;
+      if (isOwner && !pending && isDeletableGame(a)) item.canDeleteGame = true;
       items.push(item);
     }
 
@@ -641,14 +639,15 @@ export class MiniAppsService {
   async deleteGame(user: AuthUser, appId: string) {
     await this.dataSource.transaction(async (manager) => {
       const app = await this.lockApp(manager, appId, true);
-      if (app.ownerId !== user.userId) throw new ForbiddenException('仅作者可删除游戏');
-      if (app.status === 'deleted') return;
-      const versions = manager.getRepository(MiniAppVersionEntity);
-      await this.assertQueueEmpty(versions, appId);
-      const hasPreview = app.status === 'draft' && await versions.existsBy({ appId, channel: 'preview' });
-      if (!isDeletableGame(app, hasPreview)) {
-        throw new ConflictException('只有仅体验版和已下架的游戏可以删除');
+      if (app.status === 'deleted') {
+        if (app.ownerId !== user.userId) throw new NotFoundException('应用不存在');
+        return;
       }
+      if (app.ownerId !== user.userId) throw new ForbiddenException('仅作者可删除游戏');
+      if (!isDeletableGame(app)) {
+        throw new ConflictException('仅可删除未上架的草稿游戏或已下架的游戏');
+      }
+      await this.assertQueueEmpty(manager.getRepository(MiniAppVersionEntity), appId);
       await manager.update(MiniAppEntity, appId, { status: 'deleted', updatedAt: new Date() });
     });
     return { ok: true };
@@ -801,7 +800,7 @@ export class MiniAppsService {
 
   async recordPlay(appId: string) {
     await this.appRepo.query(
-      `UPDATE mini_apps SET play_count = play_count + 1 WHERE id = $1`,
+      `UPDATE mini_apps SET play_count = play_count + 1 WHERE id = $1 AND status <> 'deleted'`,
       [appId],
     );
     return { ok: true };
@@ -809,7 +808,14 @@ export class MiniAppsService {
 
   // ── 托管云存档 KV ──
 
+  private async assertAppNotDeleted(appId: string) {
+    if (await this.appRepo.existsBy({ id: appId, status: 'deleted' })) {
+      throw new NotFoundException('工坊应用不存在');
+    }
+  }
+
   async listKvKeys(userId: string, appId: string) {
+    await this.assertAppNotDeleted(appId);
     const rows = await this.kvRepo.find({
       where: { appId, userId },
       select: { key: true },
@@ -819,6 +825,7 @@ export class MiniAppsService {
   }
 
   async getKv(userId: string, appId: string, key: string) {
+    await this.assertAppNotDeleted(appId);
     const item = await this.kvRepo.findOne({ where: { appId, userId, key } });
     if (!item) throw new NotFoundException('键不存在');
     return {
@@ -829,6 +836,7 @@ export class MiniAppsService {
   }
 
   async setKv(userId: string, appId: string, key: string, value: unknown) {
+    await this.assertAppNotDeleted(appId);
     if (!key || key.length > 128) {
       throw new BadRequestException('存档键长度需在 1~128 字符之间');
     }
@@ -862,6 +870,7 @@ export class MiniAppsService {
   }
 
   async deleteKv(userId: string, appId: string, key: string) {
+    await this.assertAppNotDeleted(appId);
     await this.kvRepo.delete({ appId, userId, key });
     return { ok: true };
   }

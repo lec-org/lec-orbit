@@ -306,8 +306,9 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
   ): Promise<{ ok: true }> {
     const app = await this.appRepo.findOne({
       where: { id: appId },
-      select: { id: true, name: true, type: true },
+      select: { id: true, name: true, type: true, status: true },
     });
+    if (app?.status === 'deleted') throw new NotFoundException('工坊作品不存在');
     const now = Date.now();
     const isNew = await this.writePresence({
       userId: user.userId,
@@ -356,7 +357,7 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
       }),
       this.appRepo.find({
         where: { id: In(appIds) },
-        select: { id: true, name: true, type: true, iconUrl: true },
+        select: { id: true, name: true, type: true, iconUrl: true, status: true },
       }),
     ]);
 
@@ -364,6 +365,7 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
     const appMap = new Map(apps.map((a) => [a.id, a]));
 
     return entries
+      .filter((e) => appMap.get(e.appId)?.status !== 'deleted')
       .sort((a, b) => b.startedAt - a.startedAt)
       .map((e) => {
         const m = memberMap.get(e.userId);
@@ -402,21 +404,21 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
   }> {
     await this.clearPresence(user.userId, appId);
 
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) {
-      return { ok: true, tracked: false };
-    }
-
     const safeDur = Math.max(0, Math.min(24 * 3600, Math.round(Number(durationSeconds) || 0)));
     const now = new Date();
-    const isOwner = app.ownerId === user.userId;
 
-    const { playCount, myPlayCount, ratingChances } = await this.dataSource.transaction(
+    const result = await this.dataSource.transaction(
       async (manager) => {
         const [appRow] = (await manager.query(
-          `UPDATE mini_apps SET play_count = play_count + 1 WHERE id = $1 RETURNING play_count::int AS "playCount"`,
+          `WITH updated AS (
+             UPDATE mini_apps SET play_count = play_count + 1
+             WHERE id = $1 AND status <> 'deleted'
+             RETURNING play_count::int AS "playCount", owner_id AS "ownerId"
+           )
+           SELECT "playCount", "ownerId" FROM updated`,
           [appId],
-        )) as Array<{ playCount: number }>;
+        )) as Array<{ playCount: number; ownerId: string }>;
+        if (!appRow) return null;
 
         const [playRow] = (await manager.query(
           `INSERT INTO mini_app_play_records
@@ -444,7 +446,7 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
         );
 
         let chances = 0;
-        if (!isOwner) {
+        if (appRow.ownerId !== user.userId) {
           // 封顶 1 次评分机会，不叠加
           const [ratingRow] = (await manager.query(
             `INSERT INTO mini_app_ratings
@@ -460,12 +462,13 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
         }
 
         return {
-          playCount: Number(appRow?.playCount ?? 0),
+          playCount: appRow.playCount,
           myPlayCount: Number(playRow?.myPlayCount ?? 1),
           ratingChances: chances,
         };
       },
     );
+    if (!result) return { ok: true, tracked: false };
 
     const today = shanghaiDateKey(now);
     const globalUsed = await this.getUserDailyRatingCount(user.userId, today);
@@ -473,9 +476,7 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
     return {
       ok: true,
       tracked: true,
-      playCount,
-      myPlayCount,
-      ratingChances,
+      ...result,
       dailyRatingsRemaining: Math.max(0, DAILY_MAX_RATINGS_GLOBAL - globalUsed),
     };
   }
@@ -510,16 +511,19 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
     }
     const comment = (rawComment ?? '').trim().slice(0, 200);
 
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊作品不存在');
-    if (app.ownerId === user.userId) {
-      throw new BadRequestException('不能给自己的作品评分');
-    }
-
     const now = new Date();
     const today = shanghaiDateKey(now);
 
     const result = await this.dataSource.transaction(async (manager) => {
+      const app = await manager.findOne(MiniAppEntity, {
+        where: { id: appId },
+        lock: { mode: 'pessimistic_read' },
+      });
+      if (!app || app.status === 'deleted') throw new NotFoundException('工坊作品不存在');
+      if (app.ownerId === user.userId) {
+        throw new BadRequestException('不能给自己的作品评分');
+      }
+
       const existing = await manager.findOne(MiniAppRatingEntity, {
         where: { appId, userId: user.userId },
         lock: { mode: 'pessimistic_write' },
@@ -650,7 +654,7 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
   /** 查看单个作品的统计数据、近 35 天日维度趋势/热力图、公开评价列表以及全员可见的游玩同学明细。 */
   async getAppStats(user: AuthUser, appId: string): Promise<MiniAppStatsDTO> {
     const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊作品不存在');
+    if (!app || app.status === 'deleted') throw new NotFoundException('工坊作品不存在');
 
     const isOwner = app.ownerId === user.userId;
     const canViewPlayers = true;
@@ -919,6 +923,7 @@ export class MiniAppsEngagementService implements OnModuleInit, OnModuleDestroy 
       }),
     ]);
 
+    if (app?.status === 'deleted') throw new NotFoundException('工坊作品不存在');
     if (validMembers.length === 0) {
       throw new BadRequestException('未找到有效的受邀工作室成员');
     }
