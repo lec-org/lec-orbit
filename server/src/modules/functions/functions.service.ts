@@ -179,9 +179,14 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 作者或队长查看某版本的云函数源码（用于队长审核代码与作者自查）。 */
-  async getVersionFunctionsSource(user: AuthUser, appId: string, versionId: string) {
+  private async requireAvailableApp(appId: string): Promise<MiniAppEntity> {
     const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊应用不存在');
+    if (!app || app.status === 'deleted') throw new NotFoundException('工坊应用不存在');
+    return app;
+  }
+
+  async getVersionFunctionsSource(user: AuthUser, appId: string, versionId: string) {
+    const app = await this.requireAvailableApp(appId);
     if (!user.isCaptain && app.ownerId !== user.userId) {
       throw new ForbiddenException('仅作品作者或队长可查看云函数源码');
     }
@@ -217,6 +222,7 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
 
   /** 供内网 orbit-fn-runtime 按需拉取函数包（仅受 InternalTokenGuard 保护）。 */
   async getInternalBundle(appId: string, versionId: string) {
+    await this.requireAvailableApp(appId);
     const bundle = await this.bundleRepo.findOne({ where: { appId, versionId } });
     if (!bundle) {
       throw new NotFoundException('云函数包不存在');
@@ -273,8 +279,7 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 2. 校验应用与目标版本（普通成员仅能调用已上架的 activeVersion；作者/队长可测试指定 previewVersionId）
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊应用不存在');
+    const app = await this.requireAvailableApp(appId);
 
     const isOwnerOrCaptain = user.isCaptain || app.ownerId === user.userId;
     let targetVersionId = app.activeVersionId;
@@ -668,8 +673,7 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listSecrets(user: AuthUser, appId: string) {
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊应用不存在');
+    const app = await this.requireAvailableApp(appId);
     if (!user.isCaptain && app.ownerId !== user.userId) {
       throw new ForbiddenException('仅作品作者或队长可管理环境变量');
     }
@@ -687,8 +691,7 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async upsertSecret(user: AuthUser, appId: string, name: string, value: string) {
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊应用不存在');
+    const app = await this.requireAvailableApp(appId);
     if (!user.isCaptain && app.ownerId !== user.userId) {
       throw new ForbiddenException('仅作品作者或队长可配置环境变量');
     }
@@ -719,8 +722,7 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async deleteSecret(user: AuthUser, appId: string, name: string) {
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊应用不存在');
+    const app = await this.requireAvailableApp(appId);
     if (!user.isCaptain && app.ownerId !== user.userId) {
       throw new ForbiddenException('仅作品作者或队长可删除环境变量');
     }
@@ -735,8 +737,7 @@ export class FunctionsService implements OnModuleInit, OnModuleDestroy {
     appId: string,
     limit = 50,
   ): Promise<{ items: FnInvocationLogEntry[] }> {
-    const app = await this.appRepo.findOne({ where: { id: appId } });
-    if (!app) throw new NotFoundException('工坊应用不存在');
+    const app = await this.requireAvailableApp(appId);
     if (!user.isCaptain && app.ownerId !== user.userId) {
       throw new ForbiddenException('仅作品作者或队长可查看云函数运行日志');
     }

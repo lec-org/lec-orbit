@@ -12,7 +12,7 @@ import { validateZipBundle } from '../src/modules/miniapps/miniapp-validator.uti
 import { loadAppConfig } from '../src/config/env.config.js';
 import type { AuthUser } from '../src/modules/auth/auth.types.js';
 
-function createMockFunctionsService() {
+function createMockFunctionsService(appStatus = 'published') {
   const sentEvents: Array<{ userId: string; event: unknown }> = [];
   const hubMock = {
     pushToUser: async (userId: string, event: unknown) => {
@@ -42,7 +42,7 @@ function createMockFunctionsService() {
   const service = new FunctionsService(
     {} as never,
     cfg,
-    {} as never,
+    { findOne: async () => ({ id: 'test-app', ownerId: 'test-author', status: appStatus }) } as never,
     {} as never,
     {} as never,
     {} as never,
@@ -54,6 +54,28 @@ function createMockFunctionsService() {
 }
 
 describe('Orbit FaaS（方案 E）核心安全与平台底座能力', () => {
+  it('让作者和队长访问已删除游戏的云函数时返回 404', async () => {
+    const { service } = createMockFunctionsService('deleted');
+    const author = { userId: 'test-author', isCaptain: false } as AuthUser;
+    const captain = { userId: 'captain', isCaptain: true } as AuthUser;
+    const app = 'test-app';
+    const version = '00000000-0000-4000-8000-000000000001';
+    const calls = [
+      service.getVersionFunctionsSource(author, app, version),
+      service.invokeFunction(captain, app, 'test', null, { previewVersionId: version }),
+      service.getInternalBundle(app, version),
+      service.listSecrets(author, app),
+      service.upsertSecret(author, app, 'TEST_VALUE', 'placeholder'),
+      service.deleteSecret(author, app, 'TEST_VALUE'),
+      service.getInvocationLogs(captain, app),
+    ];
+    const results = await Promise.allSettled(calls);
+    for (const result of results) {
+      expect(result.status).toBe('rejected');
+      if (result.status === 'rejected') expect(result.reason).toMatchObject({ status: 404 });
+    }
+  });
+
   it('静态源码安全扫描拦截危险系统调用并放行合法业务代码', () => {
     const safeCode = `
       // 允许在注释里提到 Deno.Command 和 process.env

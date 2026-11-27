@@ -8,6 +8,7 @@ import { getOrbitEndpoints } from '../src/shared/env';
 import {
   ChangePasswordInputSchema,
   DocBoundsSchema,
+  ExternalSignInOptionsSchema,
   MfaVerifyInputSchema,
   OrbitConfigPatchSchema,
   PasswordSignInInputSchema,
@@ -417,9 +418,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('orbit:auth:verifyMfa', (_e, raw) =>
     authService.verifyMfa(MfaVerifyInputSchema.parse(raw)),
   );
-  ipcMain.handle('orbit:auth:signInWithEmbeddedWindow', () =>
-    authService.signInWithEmbeddedWindow(windowManager.getMainWindow()),
+  ipcMain.handle('orbit:auth:signInWithEmbeddedWindow', (_e, raw) =>
+    authService.signInWithEmbeddedWindow(
+      windowManager.getMainWindow(),
+      ExternalSignInOptionsSchema.parse(raw),
+    ),
   );
+  ipcMain.handle('orbit:auth:cancelExternalSignIn', () => {
+    authService.cancelExternalSignIn();
+  });
   ipcMain.handle('orbit:auth:getApiToken', (_e, rawTarget) => {
     const target = z.enum(['punch', 'orbit']).parse(rawTarget);
     return authService.getApiToken(target);

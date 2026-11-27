@@ -266,20 +266,35 @@ export const punchApi = {
     return this.fetchAttendance();
   },
 
-  async checkOut(): Promise<AttendanceSnapshot> {
+  async checkOut(): Promise<
+    AttendanceSnapshot & { remoteCheckOut?: boolean; checkOutNotice?: string }
+  > {
     const scan = await collectWifiScanForApi(true);
+    let remoteCheckOut = false;
+    let checkOutNotice: string | undefined;
     try {
-      await client.post(
+      const { data } = await client.post<{
+        remoteCheckOut?: boolean;
+        checkOutNotice?: string;
+      }>(
         PUNCH_ENDPOINTS.checkOut,
         scan.samples.length > 0 ? { wifiScan: scan.samples } : {},
       );
+      remoteCheckOut = Boolean(data?.remoteCheckOut);
+      if (typeof data?.checkOutNotice === 'string' && data.checkOutNotice.trim()) {
+        checkOutNotice = data.checkOutNotice.trim();
+      }
     } catch (err) {
       if (err instanceof PunchApiError && err.status === 403 && scan.samples.length === 0 && scan.error) {
         throw new PunchApiError(`${err.message}（${scan.error}）`, 403);
       }
       throw err;
     }
-    return this.fetchAttendance();
+    const snapshot = await this.fetchAttendance();
+    return {
+      ...snapshot,
+      ...(remoteCheckOut ? { remoteCheckOut, checkOutNotice } : {}),
+    };
   },
 
   async sendAttendanceKeepAlive(forceWifiScan = true): Promise<{

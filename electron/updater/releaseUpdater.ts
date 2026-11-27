@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { WindowsReleaseProvider } from './windowsReleaseProvider';
 import type { UpdateChangelog, UpdateCheckResult } from '../../src/shared/ipc';
 import {
   buildChangelogFromCommits,
@@ -279,10 +280,11 @@ export class OrbitUpdater {
     if (this.initialized) return;
     this.initialized = true;
     // 统一指向零限流 GitHub Releases CDN（generic provider 直接拉取 latest.yml 与安装包，彻底避开 api.github.com 限流）
-    autoUpdater.setFeedURL({
-      provider: 'generic',
-      url: LATEST_DOWNLOAD_BASE,
-    });
+    autoUpdater.setFeedURL(
+      process.platform === 'win32'
+        ? { provider: 'custom', updateProvider: WindowsReleaseProvider, repo: GITHUB_REPO }
+        : { provider: 'generic', url: LATEST_DOWNLOAD_BASE },
+    );
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
