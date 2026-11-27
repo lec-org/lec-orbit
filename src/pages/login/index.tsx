@@ -1,8 +1,9 @@
-/** Orbit 登录弹窗：原生账号密码登录，内置 MFA 两步验证与系统浏览器 OAuth PKCE 快捷登录（支持复用 GitHub / 飞书会话）。 */
+/** Orbit 登录弹窗：原生账号密码登录，内置 MFA 两步验证，以及 GitHub / 飞书 / 注册外部默认浏览器直达登录。 */
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
 import { Button, Dialog, Input, Message } from '@lec-space/liquidglass';
 import { User } from '@lec-space/icons';
-import { ExternalLink, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { SocialBrandGlyph } from '@/components/SocialBrandGlyph';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { useOrbitStore } from '@/stores/useOrbitStore';
@@ -12,6 +13,14 @@ export interface LoginModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+type ExternalSignInTarget = 'github' | 'feishu' | 'register';
+
+const EXTERNAL_WAIT_COPY: Record<ExternalSignInTarget, string> = {
+  github: '已在默认浏览器打开 GitHub 授权页，完成授权后将自动返回 Orbit…',
+  feishu: '已在默认浏览器打开飞书授权页，完成授权后将自动返回 Orbit…',
+  register: '已在默认浏览器打开注册页，完成注册后将自动返回 Orbit…',
+};
 
 export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element {
   const setAuthState = useOrbitStore((s) => s.setAuthState);
@@ -23,15 +32,17 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
   const [mfaMethod, setMfaMethod] = useState<'totp' | 'backup_code'>('totp');
   const [mfaCode, setMfaCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [waitingBrowser, setWaitingBrowser] = useState(false);
+  const [waitingTarget, setWaitingTarget] = useState<ExternalSignInTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const waitingBrowser = waitingTarget !== null;
 
   useEffect(() => {
     if (open && !handle && lastLoginHandle) {
       setHandle(lastLoginHandle);
     }
     if (!open && waitingBrowser) {
-      setWaitingBrowser(false);
+      setWaitingTarget(null);
       void getOrbitClient().auth.cancelExternalSignIn();
     }
   }, [open, handle, lastLoginHandle, waitingBrowser]);
@@ -94,12 +105,14 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
     setError(res.message);
   };
 
-  const handleBrowserSignIn = async () => {
-    setWaitingBrowser(true);
+  const handleExternalSignIn = async (target: ExternalSignInTarget) => {
+    setWaitingTarget(target);
     setSubmitting(true);
     setError(null);
-    const res = await getOrbitClient().auth.signInWithEmbeddedWindow();
-    setWaitingBrowser(false);
+    const options =
+      target === 'register' ? { firstScreen: 'register' as const } : { provider: target };
+    const res = await getOrbitClient().auth.signInWithEmbeddedWindow(options);
+    setWaitingTarget(null);
     setSubmitting(false);
     if (res.status === 'authenticated') {
       setAuthState(res.auth);
@@ -117,7 +130,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
   };
 
   const handleCancelBrowserSignIn = () => {
-    setWaitingBrowser(false);
+    setWaitingTarget(null);
     setSubmitting(false);
     void getOrbitClient().auth.cancelExternalSignIn();
   };
@@ -166,9 +179,9 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
             />
           </label>
           {error && <Message tone="error">{error}</Message>}
-          {waitingBrowser && (
+          {waitingTarget && (
             <div className={styles.browserWaitBox}>
-              <span>已在系统浏览器打开登录页，完成授权后将自动返回 Orbit…</span>
+              <span>{EXTERNAL_WAIT_COPY[waitingTarget]}</span>
               <Button
                 variant="glass"
                 size="small"
@@ -192,20 +205,44 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps): JSX.Element
             </Button>
             <div className={styles.dividerRow}>
               <span className={styles.dividerLine} />
-              <span className={styles.dividerText}>或</span>
+              <span className={styles.dividerText}>其他登录方式</span>
               <span className={styles.dividerLine} />
             </div>
-            <Button
-              variant="glass"
-              type="button"
-              icon={<ExternalLink size={14} />}
-              loading={waitingBrowser}
-              disabled={submitting && !waitingBrowser}
-              className={styles.primaryBtn}
-              onClick={() => void handleBrowserSignIn()}
-            >
-              浏览器快捷登录（GitHub / 飞书 / 注册）
-            </Button>
+            <div className={styles.socialBtnRow}>
+              <Button
+                variant="glass"
+                type="button"
+                icon={<SocialBrandGlyph target="github" size={17} />}
+                loading={waitingTarget === 'github'}
+                disabled={submitting && waitingTarget !== 'github'}
+                className={styles.socialBtn}
+                onClick={() => void handleExternalSignIn('github')}
+              >
+                GitHub
+              </Button>
+              <Button
+                variant="glass"
+                type="button"
+                icon={<SocialBrandGlyph target="feishu" size={17} />}
+                loading={waitingTarget === 'feishu'}
+                disabled={submitting && waitingTarget !== 'feishu'}
+                className={styles.socialBtn}
+                onClick={() => void handleExternalSignIn('feishu')}
+              >
+                飞书
+              </Button>
+            </div>
+            <div className={styles.footerRow}>
+              <span className={styles.footerHint}>还没有账号？</span>
+              <button
+                type="button"
+                className={styles.fallbackLink}
+                disabled={submitting}
+                onClick={() => void handleExternalSignIn('register')}
+              >
+                {waitingTarget === 'register' ? '等待浏览器注册完成…' : '浏览器注册'}
+              </button>
+            </div>
           </div>
         </form>
       ) : (

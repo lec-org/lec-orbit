@@ -44,7 +44,7 @@ const browserFallback: OrbitBridge = {
       message: '当前未连接到桌面主进程。',
       canFallbackWeb: false,
     }),
-    signInWithEmbeddedWindow: async () => ({
+    signInWithEmbeddedWindow: async (_options) => ({
       status: 'error',
       message: '请通过 Electron 桌面端打开浏览器快捷登录。',
       canFallbackWeb: false,

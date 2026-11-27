@@ -17,6 +17,7 @@ import type {
   AuthState,
   AuthUserProfile,
   ChangePasswordInput,
+  ExternalSignInOptions,
   MfaVerifyInput,
   OrbitChallengeDetail,
   PasswordSignInInput,
@@ -642,10 +643,13 @@ export class AuthService {
   }
 
   /**
-   * 通过系统默认浏览器执行 OAuth 2.0 PKCE 登录（复用浏览器内已登录的 GitHub / 飞书 / LecSSO 会话，
-   * 不再弹出无关闭按钮的模态 Logto 窗口；授权回调后自动前置唤醒 Orbit 主窗口）。
+   * 通过系统默认浏览器执行 OAuth 2.0 PKCE 登录（支持按 provider 直达 GitHub / 飞书授权，
+   * 或按 firstScreen 直达注册页；复用浏览器内已有登录态，授权回调后自动前置唤醒 Orbit 主窗口）。
    */
-  async signInWithEmbeddedWindow(parentWindow: BrowserWindow | null): Promise<SignInStepResult> {
+  async signInWithEmbeddedWindow(
+    parentWindow: BrowserWindow | null,
+    options?: ExternalSignInOptions,
+  ): Promise<SignInStepResult> {
     this.cleanupPendingFlow();
     this.cancelExternalSignIn();
     try {
@@ -665,7 +669,17 @@ export class AuthService {
       authUrl.searchParams.set('organization_id', cfg.ssoOrganizationId);
       authUrl.searchParams.set('code_challenge', challenge);
       authUrl.searchParams.set('code_challenge_method', 'S256');
-      authUrl.searchParams.set('prompt', 'consent');
+      // 指定社交平台直达或注册页时必须携带 prompt=login，避免浏览器已有旧 LecSSO 会话直接跳过跳转；
+      // 同时保留 consent 确保 oidc-provider 签发 refresh_token。
+      if (options?.provider) {
+        authUrl.searchParams.set('direct_sign_in', `social:${options.provider}`);
+        authUrl.searchParams.set('prompt', 'login consent');
+      } else if (options?.firstScreen === 'register') {
+        authUrl.searchParams.set('first_screen', 'register');
+        authUrl.searchParams.set('prompt', 'login consent');
+      } else {
+        authUrl.searchParams.set('prompt', 'consent');
+      }
       authUrl.searchParams.set('state', state);
 
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;

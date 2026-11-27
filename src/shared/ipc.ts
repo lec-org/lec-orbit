@@ -118,6 +118,15 @@ export const MfaVerifyInputSchema = z.object({
 });
 export type MfaVerifyInput = z.infer<typeof MfaVerifyInputSchema>;
 
+/** 外部浏览器 OAuth 登录选项：支持直达 GitHub / 飞书社交授权或注册页。 */
+export const ExternalSignInOptionsSchema = z
+  .object({
+    provider: z.enum(['github', 'feishu']).optional(),
+    firstScreen: z.enum(['sign_in', 'register']).optional(),
+  })
+  .optional();
+export type ExternalSignInOptions = z.infer<typeof ExternalSignInOptionsSchema>;
+
 export const UpdateAvatarUrlInputSchema = z.object({
   avatarUrl: z
     .string()
@@ -355,7 +364,7 @@ export interface OrbitBridge {
     getState: () => Promise<AuthState>;
     signInWithPassword: (input: PasswordSignInInput) => Promise<SignInStepResult>;
     verifyMfa: (input: MfaVerifyInput) => Promise<SignInStepResult>;
-    signInWithEmbeddedWindow: () => Promise<SignInStepResult>;
+    signInWithEmbeddedWindow: (options?: ExternalSignInOptions) => Promise<SignInStepResult>;
     cancelExternalSignIn: () => Promise<void>;
     getApiToken: (target: 'punch' | 'orbit') => Promise<string | null>;
     pickAndUploadAvatar: () => Promise<AccountActionResult>;
