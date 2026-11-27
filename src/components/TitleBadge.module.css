@@ -266,3 +266,27 @@
   color: #fecaca;
   box-shadow: 0 0 0 1.5px rgba(248, 113, 113, 0.18);
 }
+
+/* 12. 差一步美满 / 最老实之人 — 碧玉青绿 */
+.theme_teal {
+  background: rgba(20, 184, 166, 0.16);
+  border-color: rgba(13, 148, 136, 0.34);
+  color: #0f766e;
+}
+:global([data-theme='dark']) .theme_teal {
+  background: rgba(20, 184, 166, 0.24);
+  border-color: rgba(45, 212, 191, 0.4);
+  color: #99f6e4;
+}
+
+/* 13. 求求你戒赌吧 — 暗岩灰警告 */
+.theme_slate {
+  background: rgba(100, 116, 139, 0.18);
+  border-color: rgba(71, 85, 105, 0.4);
+  color: #334155;
+}
+:global([data-theme='dark']) .theme_slate {
+  background: rgba(100, 116, 139, 0.3);
+  border-color: rgba(148, 163, 184, 0.44);
+  color: #e2e8f0;
+}

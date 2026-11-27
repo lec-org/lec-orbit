@@ -2,15 +2,29 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AlertTriangle,
+  BatteryLow,
+  BookOpen,
   CalendarCheck,
+  Clover,
   Crosshair,
   Crown,
+  Dices,
   Egg,
   Flame,
+  Ghost,
+  GitPullRequest,
+  GraduationCap,
   Hourglass,
+  Layers,
+  Library,
   Moon,
+  Skull,
+  Sparkles,
   Sunrise,
   Swords,
+  Target,
+  Timer,
   Trophy,
   Zap,
 } from 'lucide-react';
@@ -48,6 +62,34 @@ function renderTitleIcon(icon: TitleIconKey, size: number): JSX.Element {
       return <Swords size={size} strokeWidth={2.2} />;
     case 'hourglass':
       return <Hourglass size={size} strokeWidth={2.2} />;
+    case 'target':
+      return <Target size={size} strokeWidth={2.2} />;
+    case 'dices':
+      return <Dices size={size} strokeWidth={2.2} />;
+    case 'skull':
+      return <Skull size={size} strokeWidth={2.2} />;
+    case 'ghost':
+      return <Ghost size={size} strokeWidth={2.2} />;
+    case 'git-pull-request':
+      return <GitPullRequest size={size} strokeWidth={2.2} />;
+    case 'clover':
+      return <Clover size={size} strokeWidth={2.2} />;
+    case 'layers':
+      return <Layers size={size} strokeWidth={2.2} />;
+    case 'library':
+      return <Library size={size} strokeWidth={2.2} />;
+    case 'book-open':
+      return <BookOpen size={size} strokeWidth={2.2} />;
+    case 'graduation-cap':
+      return <GraduationCap size={size} strokeWidth={2.2} />;
+    case 'sparkles':
+      return <Sparkles size={size} strokeWidth={2.2} />;
+    case 'timer':
+      return <Timer size={size} strokeWidth={2.2} />;
+    case 'battery-low':
+      return <BatteryLow size={size} strokeWidth={2.2} />;
+    case 'alert-triangle':
+      return <AlertTriangle size={size} strokeWidth={2.2} />;
     default:
       return <Crown size={size} strokeWidth={2.2} />;
   }

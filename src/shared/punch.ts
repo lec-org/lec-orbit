@@ -72,7 +72,21 @@ export type TitleIconKey =
   | 'flame'
   | 'egg'
   | 'swords'
-  | 'hourglass';
+  | 'hourglass'
+  | 'target'
+  | 'dices'
+  | 'skull'
+  | 'ghost'
+  | 'git-pull-request'
+  | 'clover'
+  | 'layers'
+  | 'library'
+  | 'book-open'
+  | 'graduation-cap'
+  | 'sparkles'
+  | 'timer'
+  | 'battery-low'
+  | 'alert-triangle';
 
 export type TitleThemeKey =
   | 'amber'
@@ -85,7 +99,9 @@ export type TitleThemeKey =
   | 'crimson'
   | 'purple'
   | 'rose'
-  | 'alert';
+  | 'alert'
+  | 'teal'
+  | 'slate';
 
 export interface MemberTitleBadge {
   id: string;
@@ -94,6 +110,8 @@ export interface MemberTitleBadge {
   proposer: string;
   category: TitleCategory;
   forced: boolean;
+  persistent?: boolean;
+  hideable?: boolean;
   icon: TitleIconKey;
   theme: TitleThemeKey;
 }
@@ -101,6 +119,7 @@ export interface MemberTitleBadge {
 export interface TitleEvaluationItem extends MemberTitleBadge {
   unlocked: boolean;
   equipped: boolean;
+  hidden?: boolean;
   progressText?: string;
 }
 
@@ -109,6 +128,7 @@ export interface MyTitlesView {
   /** 是否处于大一至大三称号判定范围内（false 表示往届/毕业成员仅可浏览图鉴） */
   eligible?: boolean;
   equippedTitleId: string | null;
+  hiddenTitleIds?: string[];
   displayTitles: MemberTitleBadge[];
   catalog: TitleEvaluationItem[];
 }

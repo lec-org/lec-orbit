@@ -172,6 +172,7 @@ interface OrbitStoreState {
   toggleCheckInOut: () => Promise<{ ok: boolean; message: string; status?: number }>;
   checkOut: () => Promise<{ ok: boolean; message: string; skipped?: boolean; status?: number }>;
   equipTitle: (titleId: string | null) => Promise<void>;
+  setTitleVisibility: (titleId: string, hidden: boolean) => Promise<void>;
   ackNotification: (id: string) => Promise<void>;
 }
 
@@ -1317,6 +1318,26 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       notifyToast({
         tone: 'error',
         title: '切换称号失败',
+        description: err instanceof Error ? err.message : '请稍后重试。',
+      });
+    }
+  },
+
+  setTitleVisibility: async (titleId, hidden) => {
+    try {
+      const updated = await punchApi.setTitleVisibility(titleId, hidden);
+      set({ myTitles: updated });
+      const targetName = updated.catalog.find((t) => t.id === titleId)?.name ?? '称号';
+      notifyToast({
+        tone: 'success',
+        title: hidden ? `已关闭「${targetName}」展示` : `已开启「${targetName}」展示`,
+        description: '你的工作室在岗卡片与团队周榜已同步更新。',
+      });
+      void get().refreshPunchData();
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '更新称号开关失败',
         description: err instanceof Error ? err.message : '请稍后重试。',
       });
     }
