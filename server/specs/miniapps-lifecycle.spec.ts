@@ -7,6 +7,7 @@ import { DataSource } from 'typeorm';
 import { loadAppConfig } from '../src/config/env.config.js';
 import { InitialSchema1764000000000 } from '../src/database/migrations/1764000000000-InitialSchema.js';
 import { AddMiniAppVersionIconUrl1764200000000 } from '../src/database/migrations/1764200000000-AddMiniAppVersionIconUrl.js';
+import { AddOrbitMemberProfileFields1764400000000 } from '../src/database/migrations/1764400000000-AddOrbitMemberProfileFields.js';
 import type { AuthUser } from '../src/modules/auth/auth.types.js';
 import { MiniAppKvEntity } from '../src/modules/miniapps/entities/mini-app-kv.entity.js';
 import { MiniAppVersionEntity } from '../src/modules/miniapps/entities/mini-app-version.entity.js';
@@ -92,6 +93,7 @@ describe.skipIf(!dsn)('Workshop release lifecycle (PostgreSQL)', () => {
       await migration.down(runner);
       await migration.up(runner);
       await migration.up(runner);
+      await new AddOrbitMemberProfileFields1764400000000().up(runner);
     } finally {
       await runner.release();
     }
@@ -218,6 +220,59 @@ describe.skipIf(!dsn)('Workshop release lifecycle (PostgreSQL)', () => {
     expect((await service.list(author, { mine: true })).find((app) => app.id === id)).toMatchObject({
       status: 'suspended', pendingVersion: null, recoveryVersion: { id: releaseId },
     });
+  });
+
+  it('lets the author remove a preview from both catalogs and reuse the same ID', async () => {
+    const id = `delete-preview-${randomUUID()}`;
+    const uploaded = await service.uploadBundle(author, bundle(id, '1.0.0', 'Private playtest'), {
+      channel: 'preview',
+    });
+    expect((await service.list(author, { mine: true })).find((app) => app.id === id))
+      .toMatchObject({ canDeleteGame: true });
+    expect(await responseStatus(service.deleteGame(visitor, id))).toBe(403);
+    expect(await responseStatus(service.deleteGame(captain, id))).toBe(403);
+    await service.deleteGame(author, id);
+    await service.deleteGame(author, id);
+    expect((await service.list(author, { mine: true })).some((app) => app.id === id)).toBe(false);
+    expect((await service.list(captain, {})).some((app) => app.id === id)).toBe(false);
+    expect(await responseStatus(service.getDetail(author, id))).toBe(404);
+    expect(await db.getRepository(MiniAppVersionEntity).findOneBy({ id: uploaded.latestVersion!.id })).not.toBeNull();
+    expect(await responseStatus(service.uploadBundle(captain, bundle(id, '1.1.0', 'Taken ID'), {
+      channel: 'release', directPublish: 'true',
+    }))).toBe(403);
+    const restored = await service.uploadBundle(author, bundle(id, '1.1.0', 'Back to playtest'), {
+      channel: 'preview',
+    });
+    expect(restored).toMatchObject({ id, ownerId: author.userId, status: 'draft' });
+    expect((await service.list(author, { mine: true })).find((app) => app.id === id))
+      .toMatchObject({ canDeleteGame: true });
+  });
+
+  it('requires first withdrawing formal reviews or downlisting published games and preserves saves', async () => {
+    const id = `delete-published-${randomUUID()}`;
+    const initial = await service.uploadBundle(author, bundle(id, '1.0.0', 'First release'), {
+      channel: 'release',
+    });
+    const activeId = initial.pendingVersion!.id;
+    expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+    await service.reviewVersion(captain, id, activeId, 'approve');
+    expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+    await service.updateStatus(author, id, { status: 'suspended' });
+    const retry = await service.resubmitVersion(author, id, activeId);
+    expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+    await service.withdrawVersion(author, id, retry.versionId);
+    const saves = db.getRepository(MiniAppKvEntity);
+    await saves.insert({ appId: id, userId: author.userId, key: 'score', valueJson: 42, updatedAt: new Date() });
+
+    await service.deleteGame(author, id);
+
+    expect(await db.getRepository(MiniAppEntity).findOneByOrFail({ id }))
+      .toMatchObject({ status: 'deleted', activeVersionId: activeId });
+    expect((await service.list(captain, {})).some((app) => app.id === id)).toBe(false);
+    expect(await responseStatus(service.resubmitVersion(author, id, activeId))).toBe(404);
+    expect(await responseStatus(service.updateStatus(captain, id, { status: 'published' }))).toBe(404);
+    expect(await saves.findOneByOrFail({ appId: id, userId: author.userId, key: 'score' }))
+      .toMatchObject({ valueJson: 42 });
   });
 
   it('returns one 409 when approval and withdrawal race for the same release', async () => {
