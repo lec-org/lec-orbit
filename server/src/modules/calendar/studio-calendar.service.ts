@@ -348,9 +348,9 @@ export class StudioCalendarService {
       return rows.map(toDto);
     }
 
-    // 未传时间窗时按最新日程优先截取，避免历史旧记录累积后把当前与未来日程挤出窗口
+    // 未传时间窗时按最新日程优先截取，反序后保持同一天内全天事件排在非全天之前（与有范围分支一致）
     qb.orderBy('e.start_date', 'DESC')
-      .addOrderBy('e.all_day', 'DESC')
+      .addOrderBy('e.all_day', 'ASC')
       .addOrderBy('e.start_time', 'DESC')
       .limit(1000);
     const rows = await qb.getMany();

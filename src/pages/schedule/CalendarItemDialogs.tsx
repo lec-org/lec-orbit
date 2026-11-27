@@ -57,6 +57,7 @@ import {
   type UpsertCalendarEventInput,
   type UpsertCalendarTaskInput,
 } from '@shared/calendar';
+import { sliceFreeBusyEventForDate } from '@shared/freeBusy';
 import type { StudioMemberCard } from '@shared/ipc';
 import type { ScheduleCourseWithMeetings, ScheduleDetail } from '@shared/schedule';
 import {
@@ -407,14 +408,15 @@ export function EventTaskEditorDialog({
             if (ev.id === excludeId) continue;
             if (!eventCoversDate(ev, dateStr)) continue;
             const cat = categoryById.get(ev.calendarId);
+            const sliced = sliceFreeBusyEventForDate(ev, dateStr);
             blocks.push({
               id: `per:${ev.id}`,
               kind: 'personal',
               title: ev.title,
               location: ev.location || '',
-              allDay: ev.allDay || ev.endDate > ev.startDate,
-              startTime: ev.startTime,
-              endTime: ev.endTime,
+              allDay: sliced.allDay,
+              startTime: sliced.startTime,
+              endTime: sliced.endTime,
               color: cat?.color ?? '#2563EB',
               status: 'accepted',
               meta: cat?.name ?? '个人日程',
@@ -434,14 +436,15 @@ export function EventTaskEditorDialog({
           const resp =
             ev.attendeeResponses?.[uid] ??
             (ev.creatorId === uid ? 'accepted' : 'tentative');
+          const sliced = sliceFreeBusyEventForDate(ev, dateStr);
           blocks.push({
             id: `std:${ev.id}`,
             kind: 'studio',
             title: ev.title,
             location: ev.location || '',
-            allDay: ev.allDay || ev.endDate > ev.startDate,
-            startTime: ev.startTime,
-            endTime: ev.endTime,
+            allDay: sliced.allDay,
+            startTime: sliced.startTime,
+            endTime: sliced.endTime,
             color: '#7C3AED',
             status: resp,
             meta: resp === 'tentative' ? '未回复' : '工作室',
@@ -472,17 +475,38 @@ export function EventTaskEditorDialog({
     ],
   );
 
-  // 拉取右侧多人忙闲数据（防抖 + 后端优先 + 本机课表兜底）
-  useEffect(() => {
-    if (!open || !showTimelineSplit || !evStartDate) return;
-    const queryUserIds =
+  // 用 ref 持有最新本地兜底构建器，避免轮询或无关状态刷新导致 queryFreeBusy 频繁重发
+  const buildLocalFallbackTimelinesRef = useRef(buildLocalFallbackTimelines);
+  buildLocalFallbackTimelinesRef.current = buildLocalFallbackTimelines;
+
+  // 当已勾选年级时，仅传递未被已选年级覆盖的独立成员 ID 并限制在 60 人内，防止勾选多年级或全员触发后端 Zod 400
+  const apiQueryUserIds = useMemo(() => {
+    if (selectedGrades.length > 0) {
+      return selectedUserIds
+        .filter((id) => {
+          const m = memberById.get(id);
+          return !(m?.enrollYear != null && selectedGrades.includes(m.enrollYear));
+        })
+        .slice(0, 60);
+    }
+    const base =
       resolvedAttendeeIds.length > 0
         ? resolvedAttendeeIds
         : normalizedMembers.slice(0, 8).map((m) => m.userId);
-    if (queryUserIds.length === 0) {
+    return base.slice(0, 60);
+  }, [selectedGrades, selectedUserIds, memberById, resolvedAttendeeIds, normalizedMembers]);
+
+  // 拉取右侧多人忙闲数据（防抖 + 后端优先 + 本机课表兜底）
+  useEffect(() => {
+    if (!open || !showTimelineSplit || !evStartDate) return;
+    if (apiQueryUserIds.length === 0 && selectedGrades.length === 0) {
       setFreeBusyMembers([]);
       return;
     }
+    const fallbackTargetIds =
+      resolvedAttendeeIds.length > 0
+        ? resolvedAttendeeIds
+        : normalizedMembers.slice(0, 8).map((m) => m.userId);
 
     let cancelled = false;
     const timer = window.setTimeout(async () => {
@@ -490,7 +514,7 @@ export function EventTaskEditorDialog({
       try {
         const res = await orbitServerApi.queryFreeBusy({
           date: evStartDate,
-          userIds: queryUserIds,
+          userIds: apiQueryUserIds,
           grades: selectedGrades,
           excludeEventId: draft?.editingEvent?.source === 'studio' ? draft.editingEvent.id : undefined,
         });
@@ -498,7 +522,7 @@ export function EventTaskEditorDialog({
 
         // 对当前用户自己：若服务端尚未收到本机最新课表快照，自动用本机实时课表与个人日程补全合并
         const localSelf = currentUser?.userId
-          ? buildLocalFallbackTimelines(evStartDate, [currentUser.userId])[0]
+          ? buildLocalFallbackTimelinesRef.current(evStartDate, [currentUser.userId])[0]
           : undefined;
         const merged = (res.members ?? []).map((m) => {
           if (currentUser?.userId && m.userId === currentUser.userId && localSelf && !m.hasScheduleSynced) {
@@ -517,7 +541,7 @@ export function EventTaskEditorDialog({
         setFreeBusyFallback(null);
       } catch {
         if (cancelled) return;
-        setFreeBusyMembers(buildLocalFallbackTimelines(evStartDate, queryUserIds));
+        setFreeBusyMembers(buildLocalFallbackTimelinesRef.current(evStartDate, fallbackTargetIds));
         setFreeBusyFallback('当前处于本地预览模式（已展示本机课表与工作室共享日程，服务端升级后自动拉取全员课表）');
       } finally {
         if (!cancelled) setFreeBusyLoading(false);
@@ -532,13 +556,13 @@ export function EventTaskEditorDialog({
     open,
     showTimelineSplit,
     evStartDate,
+    apiQueryUserIds,
     resolvedAttendeeIds,
     selectedGrades,
     normalizedMembers,
     draft?.editingEvent?.id,
     draft?.editingEvent?.source,
     currentUser?.userId,
-    buildLocalFallbackTimelines,
     freeBusyReloadTick,
   ]);
 

@@ -1,5 +1,5 @@
 /** Orbit（伴程）Electron 主进程入口：单实例锁、协议注册、三层存储、窗口管理与 IPC 编排。 */
-import { app, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -461,6 +461,7 @@ function registerIpcHandlers(): void {
     const scope = currentScopeKey();
     const state = await authService.signOut();
     localDb.clearScope(scope);
+    approvedSwpuTlsCerts.clear();
     await swpuScheduleImporter?.resetForSignOut();
     return state;
   });
@@ -934,50 +935,62 @@ app.on('activate', () => {
   windowManager?.showMainWindow();
 });
 
-/** 本次运行中已由用户显式确认允许的教务非认证域名证书例外集合。 */
-const approvedSwpuTlsHosts = new Set<string>();
-const SWPU_AUTH_HOST_RE = /^(?:sso|auth|ids|cas|login)(?:[-.].*)?\.swpu\.edu\.cn$/i;
+/** 本次会话中已由用户显式确认允许的教务非认证域名+证书指纹例外集合（登出/切号时自动清空）。 */
+const approvedSwpuTlsCerts = new Set<string>();
+/** 同 host+证书指纹的并发弹窗去重表，避免子资源并发触发证书错误时出现弹窗风暴。 */
+const pendingSwpuTlsPrompts = new Map<string, Promise<boolean>>();
+const SWPU_AUTH_HOST_RE = /^(?:sso|auth|ids|cas|login|vpn|webvpn)(?:[-.].*)?\.swpu\.edu\.cn$/i;
 
-// 严禁对统一身份认证域（sso.swpu.edu.cn 等）静默放行 TLS 证书错误；其余校内教务子域需经用户显式确认
+// 严禁对统一身份认证域及 WebVPN 入口域（sso/vpn/webvpn.swpu.edu.cn 等）放行 TLS 证书错误；其余校内教务子域需按证书指纹显式确认
 app.on('certificate-error', (event, wc, url, error, cert, callback) => {
   try {
     const host = new URL(url).hostname.toLowerCase();
     const isSwpuSubdomain = host === 'swpu.edu.cn' || host.endsWith('.swpu.edu.cn');
     if (swpuScheduleImporter?.ownsWebContents(wc) && isSwpuSubdomain) {
       if (SWPU_AUTH_HOST_RE.test(host)) {
-        console.warn(`[orbit:tls] 拒绝静默放行认证域名证书错误: host=${host} error=${error}`);
+        console.warn(`[orbit:tls] 拒绝放行认证/VPN 域名证书错误: host=${host} error=${error}`);
         callback(false);
         return;
       }
-      if (approvedSwpuTlsHosts.has(host)) {
+      const fingerprint = String(cert?.fingerprint ?? '').trim();
+      const certKey = fingerprint ? `${host}::${fingerprint}` : '';
+      if (certKey && approvedSwpuTlsCerts.has(certKey)) {
         event.preventDefault();
         callback(true);
         return;
       }
       event.preventDefault();
-      const ownerWin = windowManager?.getMainWindow();
-      const promptOpts: Electron.MessageBoxOptions = {
-        type: 'warning',
-        title: '教务站点证书校验异常',
-        message: `目标教务站点 ${host} 的 HTTPS 证书未通过系统校验（${error}）。`,
-        detail: `证书主体：${cert?.subjectName || '未知'}\n签发方：${cert?.issuerName || '未知'}\n若你在公共 Wi-Fi 下看到此提示，可能存在中间人劫持风险，建议取消连接。`,
-        buttons: ['取消连接（推荐）', '仅本次信任并继续'],
-        defaultId: 0,
-        cancelId: 0,
-      };
-      const ask = ownerWin
-        ? dialog.showMessageBox(ownerWin, promptOpts)
-        : dialog.showMessageBox(promptOpts);
-      void ask
-        .then((res) => {
-          if (res.response === 1) {
-            approvedSwpuTlsHosts.add(host);
-            callback(true);
-          } else {
-            callback(false);
-          }
-        })
-        .catch(() => callback(false));
+      const promptKey = certKey || `${host}::${error}`;
+      let promptPromise = pendingSwpuTlsPrompts.get(promptKey);
+      if (!promptPromise) {
+        const ownerWin = BrowserWindow.fromWebContents(wc) ?? windowManager?.getMainWindow();
+        const promptOpts: Electron.MessageBoxOptions = {
+          type: 'warning',
+          title: '教务站点证书校验异常',
+          message: `目标教务站点 ${host} 的 HTTPS 证书未通过系统校验（${error}）。`,
+          detail: `证书主体：${cert?.subjectName || '未知'}\n签发方：${cert?.issuerName || '未知'}\n指纹：${fingerprint || '未知'}\n若你在公共 Wi-Fi 下看到此提示，可能存在中间人劫持风险，建议取消连接。`,
+          buttons: ['取消连接（推荐）', '仅本次信任并继续'],
+          defaultId: 0,
+          cancelId: 0,
+        };
+        const ask = ownerWin
+          ? dialog.showMessageBox(ownerWin, promptOpts)
+          : dialog.showMessageBox(promptOpts);
+        promptPromise = ask
+          .then((res) => {
+            const approved = res.response === 1;
+            if (approved && certKey) {
+              approvedSwpuTlsCerts.add(certKey);
+            }
+            return approved;
+          })
+          .catch(() => false)
+          .finally(() => {
+            pendingSwpuTlsPrompts.delete(promptKey);
+          });
+        pendingSwpuTlsPrompts.set(promptKey, promptPromise);
+      }
+      void promptPromise.then((approved) => callback(approved));
       return;
     }
   } catch {
@@ -1179,6 +1192,7 @@ app.whenReady().then(async () => {
   authService.onStateChanged((state) => {
     const nextSubject = state.authenticated ? (state.profile?.subject ?? null) : null;
     if (!state.authenticated || (lastAuthSubject && nextSubject && lastAuthSubject !== nextSubject)) {
+      approvedSwpuTlsCerts.clear();
       void swpuScheduleImporter?.resetForSignOut();
     }
     lastAuthSubject = nextSubject;

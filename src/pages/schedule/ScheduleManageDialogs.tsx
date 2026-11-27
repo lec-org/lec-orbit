@@ -63,14 +63,55 @@ export function CourseListDialog({
   const [editMode, setEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setEditMode(false);
       setSelectedIds([]);
       setConfirmClear(false);
+      setDeleting(false);
+      setClearing(false);
     }
   }, [open]);
+
+  const handleDeleteSelected = async () => {
+    if (deleting || selectedIds.length === 0) return;
+    setDeleting(true);
+    try {
+      await onDeleteCourses(selectedIds);
+      setSelectedIds([]);
+      setEditMode(false);
+      notifyToast({ tone: 'info', title: '已删除所选课程' });
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '删除课程失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (clearing) return;
+    setClearing(true);
+    try {
+      await onClearAll();
+      setConfirmClear(false);
+      notifyToast({ tone: 'info', title: '已清空当前课表' });
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '清空课表失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) =>
@@ -98,14 +139,9 @@ export function CourseListDialog({
                 variant="filled"
                 size="small"
                 destructive
+                loading={deleting}
                 icon={<Trash2 size={13} />}
-                onClick={() => {
-                  void onDeleteCourses(selectedIds).then(() => {
-                    setSelectedIds([]);
-                    setEditMode(false);
-                    notifyToast({ tone: 'info', title: '已删除所选课程' });
-                  });
-                }}
+                onClick={() => void handleDeleteSelected()}
               >
                 删除所选 ({selectedIds.length})
               </Button>
@@ -181,16 +217,17 @@ export function CourseListDialog({
                 variant="filled"
                 destructive
                 size="small"
-                onClick={() => {
-                  void onClearAll().then(() => {
-                    setConfirmClear(false);
-                    notifyToast({ tone: 'info', title: '已清空当前课表' });
-                  });
-                }}
+                loading={clearing}
+                onClick={() => void handleClearAll()}
               >
                 确认清空
               </Button>
-              <Button variant="glass" size="small" onClick={() => setConfirmClear(false)}>
+              <Button
+                variant="glass"
+                size="small"
+                disabled={clearing}
+                onClick={() => setConfirmClear(false)}
+              >
                 取消
               </Button>
             </div>
@@ -198,7 +235,7 @@ export function CourseListDialog({
             <Button
               variant="glass"
               destructive
-              disabled={detail.courses.length === 0}
+              disabled={detail.courses.length === 0 || deleting}
               onClick={() => setConfirmClear(true)}
             >
               清空当前课表
@@ -314,6 +351,7 @@ export function TimetableEditorDialog({
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     setSaving(true);
     try {
       await onSave({
@@ -325,6 +363,12 @@ export function TimetableEditorDialog({
       });
       onOpenChange(false);
       notifyToast({ tone: 'success', title: '时间表已保存' });
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '保存时间表失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
     } finally {
       setSaving(false);
     }
@@ -511,6 +555,7 @@ export function ScheduleSettingsDialog({
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     setSaving(true);
     try {
       await onSave({
@@ -527,6 +572,12 @@ export function ScheduleSettingsDialog({
       });
       onOpenChange(false);
       notifyToast({ tone: 'success', title: '课表设置已保存' });
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '保存课表设置失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
     } finally {
       setSaving(false);
     }
@@ -725,13 +776,32 @@ export function ScheduleListDialog({
   const [busy, setBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
       setConfirmDeleteId(null);
       setDeletingId(null);
+      setSelectingId(null);
     }
   }, [open]);
+
+  const handleSelectSchedule = async (id: string, closeAfter: boolean) => {
+    if (selectingId || deletingId) return;
+    setSelectingId(id);
+    try {
+      await onSelect(id);
+      if (closeAfter) onOpenChange(false);
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '切换课表失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      });
+    } finally {
+      setSelectingId(null);
+    }
+  };
 
   const handleCreate = async () => {
     const clean = newName.trim();
@@ -797,9 +867,7 @@ export function ScheduleListDialog({
               <div
                 className={styles.previewItemLeft}
                 style={{ flex: 1, cursor: 'pointer' }}
-                onClick={() => {
-                  void onSelect(item.id).then(() => onOpenChange(false));
-                }}
+                onClick={() => void handleSelectSchedule(item.id, true)}
               >
                 <div style={{ minWidth: 0 }}>
                   <div className={styles.previewItemTitle}>{item.name}</div>
@@ -815,8 +883,10 @@ export function ScheduleListDialog({
                   <Button
                     variant="glass"
                     size="small"
+                    loading={selectingId === item.id}
+                    disabled={Boolean(selectingId || deletingId)}
                     icon={<Check size={13} />}
-                    onClick={() => void onSelect(item.id)}
+                    onClick={() => void handleSelectSchedule(item.id, false)}
                   >
                     切换
                   </Button>
