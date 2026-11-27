@@ -407,6 +407,10 @@ export const orbitServerApi = {
     );
   },
 
+  async deleteMiniAppGame(appId: string): Promise<void> {
+    await client.delete(`/api/v1/apps/${encodeURIComponent(appId)}`);
+  },
+
   async updateMiniAppStatus(
     appId: string,
     payload: { status?: 'published' | 'suspended' | 'draft'; activeVersionId?: string },

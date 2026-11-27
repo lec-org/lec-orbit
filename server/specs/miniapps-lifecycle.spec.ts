@@ -7,10 +7,17 @@ import { DataSource } from 'typeorm';
 import { loadAppConfig } from '../src/config/env.config.js';
 import { InitialSchema1764000000000 } from '../src/database/migrations/1764000000000-InitialSchema.js';
 import { AddMiniAppVersionIconUrl1764200000000 } from '../src/database/migrations/1764200000000-AddMiniAppVersionIconUrl.js';
+import { AddOrbitMemberProfileFields1764400000000 } from '../src/database/migrations/1764400000000-AddOrbitMemberProfileFields.js';
+import { AddMiniAppEngagementTables1764500000000 } from '../src/database/migrations/1764500000000-AddMiniAppEngagementTables.js';
+import { AddMiniAppPlayDaily1764600000000 } from '../src/database/migrations/1764600000000-AddMiniAppPlayDaily.js';
 import type { AuthUser } from '../src/modules/auth/auth.types.js';
 import { MiniAppKvEntity } from '../src/modules/miniapps/entities/mini-app-kv.entity.js';
 import { MiniAppVersionEntity } from '../src/modules/miniapps/entities/mini-app-version.entity.js';
 import { MiniAppEntity } from '../src/modules/miniapps/entities/mini-app.entity.js';
+import { MiniAppPlayRecordEntity } from '../src/modules/miniapps/entities/mini-app-play-record.entity.js';
+import { MiniAppPlayDailyEntity } from '../src/modules/miniapps/entities/mini-app-play-daily.entity.js';
+import { MiniAppRatingEntity } from '../src/modules/miniapps/entities/mini-app-rating.entity.js';
+import { MiniAppsEngagementService } from '../src/modules/miniapps/miniapps-engagement.service.js';
 import { MiniAppsService } from '../src/modules/miniapps/miniapps.service.js';
 import type { NotificationsService } from '../src/modules/notifications/notifications.service.js';
 import { OrbitMemberEntity } from '../src/modules/roster/entities/orbit-member.entity.js';
@@ -62,12 +69,17 @@ describe.skipIf(!dsn)('Workshop release lifecycle (PostgreSQL)', () => {
   const legacyVersionId = randomUUID();
   let db: DataSource;
   let service: MiniAppsService;
+  let engagement: MiniAppsEngagementService;
+  let inviteCount = 0;
   let schemaCreated = false;
 
   beforeAll(async () => {
     db = await new DataSource({
       type: 'postgres', url: dsn, schema,
-      entities: [MiniAppEntity, MiniAppVersionEntity, MiniAppKvEntity, OrbitMemberEntity],
+      entities: [
+        MiniAppEntity, MiniAppVersionEntity, MiniAppKvEntity, OrbitMemberEntity,
+        MiniAppPlayRecordEntity, MiniAppPlayDailyEntity, MiniAppRatingEntity,
+      ],
       extra: { options: `-c search_path=${schema}` },
     }).initialize();
     await db.query(`CREATE SCHEMA "${schema}"`);
@@ -92,6 +104,9 @@ describe.skipIf(!dsn)('Workshop release lifecycle (PostgreSQL)', () => {
       await migration.down(runner);
       await migration.up(runner);
       await migration.up(runner);
+      await new AddOrbitMemberProfileFields1764400000000().up(runner);
+      await new AddMiniAppEngagementTables1764500000000().up(runner);
+      await new AddMiniAppPlayDaily1764600000000().up(runner);
     } finally {
       await runner.release();
     }
@@ -106,19 +121,28 @@ describe.skipIf(!dsn)('Workshop release lifecycle (PostgreSQL)', () => {
       putPublicObject: async (key) => `https://bundles.example.test/${key}`,
     };
     const notifications: Pick<NotificationsService, 'createAndPush'> = {
-      createAndPush: async (input) => ({
-        id: randomUUID(), sourceApp: input.sourceApp, eventType: input.eventType,
-        title: input.title, body: input.body ?? '', payload: input.payload ?? {},
-        targetUserId: input.targetUserId ?? undefined,
-        actionStatus: input.actionStatus ?? undefined, isRead: false,
-        createdAt: new Date().toISOString(),
-      }),
+      createAndPush: async (input) => {
+        if (input.eventType === 'hub.room_invite') inviteCount++;
+        return {
+          id: randomUUID(), sourceApp: input.sourceApp, eventType: input.eventType,
+          title: input.title, body: input.body ?? '', payload: input.payload ?? {},
+          targetUserId: input.targetUserId ?? undefined,
+          actionStatus: input.actionStatus ?? undefined, isRead: false,
+          createdAt: new Date().toISOString(),
+        };
+      },
     };
     service = new MiniAppsService(
       db, db.getRepository(MiniAppEntity), db.getRepository(MiniAppVersionEntity),
       db.getRepository(MiniAppKvEntity), storage as S3StorageService,
       new RosterService(rosterRepo, loadAppConfig({})),
       notifications as NotificationsService,
+    );
+    engagement = new MiniAppsEngagementService(
+      loadAppConfig({}), db, db.getRepository(MiniAppEntity),
+      db.getRepository(MiniAppPlayRecordEntity), db.getRepository(MiniAppPlayDailyEntity),
+      db.getRepository(MiniAppRatingEntity), rosterRepo,
+      { broadcast: () => undefined } as never, notifications as NotificationsService,
     );
   }, 15_000);
 
@@ -218,6 +242,109 @@ describe.skipIf(!dsn)('Workshop release lifecycle (PostgreSQL)', () => {
     expect((await service.list(author, { mine: true })).find((app) => app.id === id)).toMatchObject({
       status: 'suspended', pendingVersion: null, recoveryVersion: { id: releaseId },
     });
+  });
+
+  it('lets the author remove a preview from both catalogs and reuse the same ID', async () => {
+    const id = `delete-preview-${randomUUID()}`;
+    const uploaded = await service.uploadBundle(author, bundle(id, '1.0.0', 'Private playtest'), {
+      channel: 'preview',
+    });
+    expect((await service.list(author, { mine: true })).find((app) => app.id === id))
+      .toMatchObject({ canDeleteGame: true });
+    expect(await responseStatus(service.deleteGame(visitor, id))).toBe(403);
+    expect(await responseStatus(service.deleteGame(captain, id))).toBe(403);
+    await service.deleteGame(author, id);
+    await service.deleteGame(author, id);
+    expect(await responseStatus(service.deleteGame(visitor, id))).toBe(404);
+    expect(await responseStatus(service.deleteGame(captain, id))).toBe(404);
+    expect((await service.list(author, { mine: true })).some((app) => app.id === id)).toBe(false);
+    expect((await service.list(captain, {})).some((app) => app.id === id)).toBe(false);
+    expect(await responseStatus(service.getDetail(author, id))).toBe(404);
+    expect(await db.getRepository(MiniAppVersionEntity).findOneBy({ id: uploaded.latestVersion!.id })).not.toBeNull();
+    expect(await responseStatus(service.uploadBundle(captain, bundle(id, '1.1.0', 'Taken ID'), {
+      channel: 'release', directPublish: 'true',
+    }))).toBe(403);
+    const restored = await service.uploadBundle(author, bundle(id, '1.1.0', 'Back to playtest'), {
+      channel: 'preview',
+    });
+    expect(restored).toMatchObject({ id, ownerId: author.userId, status: 'draft' });
+    expect((await service.list(author, { mine: true })).find((app) => app.id === id))
+      .toMatchObject({ canDeleteGame: true });
+  });
+
+  it('requires first withdrawing formal reviews or downlisting published games and preserves saves', async () => {
+    const id = `delete-published-${randomUUID()}`;
+    const initial = await service.uploadBundle(author, bundle(id, '1.0.0', 'First release'), {
+      channel: 'release',
+    });
+    const activeId = initial.pendingVersion!.id;
+    expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+    await service.reviewVersion(captain, id, activeId, 'approve');
+    expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+    await service.updateStatus(author, id, { status: 'suspended' });
+    const retry = await service.resubmitVersion(author, id, activeId);
+    expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+    await service.withdrawVersion(author, id, retry.versionId);
+    const saves = db.getRepository(MiniAppKvEntity);
+    await saves.insert({ appId: id, userId: author.userId, key: 'score', valueJson: 42, updatedAt: new Date() });
+
+    await service.deleteGame(author, id);
+
+    expect(await db.getRepository(MiniAppEntity).findOneByOrFail({ id }))
+      .toMatchObject({ status: 'deleted', activeVersionId: activeId });
+    expect((await service.list(captain, {})).some((app) => app.id === id)).toBe(false);
+    expect(await responseStatus(service.resubmitVersion(author, id, activeId))).toBe(404);
+    expect(await responseStatus(service.updateStatus(captain, id, { status: 'published' }))).toBe(404);
+    expect(await saves.findOneByOrFail({ appId: id, userId: author.userId, key: 'score' }))
+      .toMatchObject({ valueJson: 42 });
+  });
+
+  it('lets authors remove unpublished formal drafts after withdrawal or rejection', async () => {
+    for (const action of ['withdraw', 'reject'] as const) {
+      const id = `delete-draft-${randomUUID()}`;
+      const uploaded = await service.uploadBundle(author, bundle(id, '1.0.0', 'Formal draft'), { channel: 'release' });
+      const versionId = uploaded.pendingVersion!.id;
+      expect(await responseStatus(service.deleteGame(author, id))).toBe(409);
+      if (action === 'withdraw') await service.withdrawVersion(author, id, versionId);
+      else await service.reviewVersion(captain, id, versionId, 'reject');
+      expect((await service.list(author, { mine: true })).find((app) => app.id === id))
+        .toMatchObject({ canDeleteGame: true });
+      await service.deleteGame(author, id);
+      expect(await responseStatus(service.getDetail(captain, id))).toBe(404);
+    }
+  });
+
+  it('hides existing presence and prevents further engagement writes after deletion', async () => {
+    const id = `deleted-engagement-${randomUUID()}`;
+    await service.uploadBundle(author, bundle(id, '1.0.0', 'Engagement game'), { channel: 'preview' });
+    await engagement.reportPresence(visitor, id);
+    await engagement.reportPresence(visitor, 'local-builtin', { appName: 'Local builtin' });
+    expect((await engagement.listActivePresence()).map((entry) => entry.appId)).toContain(id);
+    expect(await engagement.endPlaySession(captain, id, 10)).toMatchObject({ tracked: true, playCount: 1 });
+    await service.setKv(author.userId, id, 'score', 42);
+    await service.deleteGame(author, id);
+    const attempts = [
+      engagement.reportPresence(visitor, id),
+      engagement.getAppStats(author, id),
+      engagement.submitRating(captain, id, 5),
+      engagement.sendRoomInvites(visitor, id, { toUserIds: [captain.userId], roomId: 'room' }),
+      service.listKvKeys(author.userId, id),
+      service.getKv(author.userId, id, 'score'),
+      service.setKv(author.userId, id, 'score', 100),
+      service.deleteKv(author.userId, id, 'score'),
+    ];
+    expect(await Promise.all(attempts.map(responseStatus))).toEqual(attempts.map(() => 404));
+    expect((await engagement.listActivePresence()).map((entry) => entry.appId)).toEqual(['local-builtin']);
+    expect(await engagement.endPlaySession(captain, id, 10)).toEqual({ ok: true, tracked: false });
+    await service.recordPlay(id);
+    expect(await db.getRepository(MiniAppEntity).findOneByOrFail({ id })).toMatchObject({ playCount: '1' });
+    expect(await db.getRepository(MiniAppPlayRecordEntity).findOneByOrFail({ appId: id, userId: captain.userId }))
+      .toMatchObject({ playCount: 1, totalDurationSeconds: 10 });
+    expect(await db.getRepository(MiniAppRatingEntity).findOneByOrFail({ appId: id, userId: captain.userId }))
+      .toMatchObject({ score: null, ratingChances: 1 });
+    expect(await db.getRepository(MiniAppKvEntity).findOneByOrFail({ appId: id, userId: author.userId, key: 'score' }))
+      .toMatchObject({ valueJson: 42 });
+    expect(inviteCount).toBe(0);
   });
 
   it('returns one 409 when approval and withdrawal race for the same release', async () => {
