@@ -160,6 +160,10 @@ jobs:
       - name: 构建 Electron 产物
         working-directory: apps/lec-orbit
         run: bun run build
+      - name: 编译 macOS 原生 CoreWLAN 定位扫描模块
+        if: matrix.platform == 'mac'
+        working-directory: apps/lec-orbit
+        run: bun run build:mac-wifi
       - name: 打包 macOS 制品（DMG + ZIP，arm64 & x64）
         if: matrix.platform == 'mac'
         working-directory: apps/lec-orbit

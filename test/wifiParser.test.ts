@@ -8,6 +8,7 @@ import {
   parseNmcliWifiOutput,
   signalPercentToRssi,
 } from '../electron/network/wifiParser';
+import { formatWifiExecError, interpretMacScanPayload } from '../electron/network/wifiScanner';
 
 describe('wifiParser', () => {
   test('normalizeBssid 规范化 MAC 并过滤非法/全零/广播地址', () => {
@@ -171,5 +172,74 @@ SSID 1 : Lab-502
 
     const malformed = parseNativeWlanJson('not-json');
     expect(malformed.shouldFallback).toBe(true);
+  });
+
+  test('formatWifiExecError 清洗 osascript 原始命令行与超时错误，不向界面泄露脚本源码', () => {
+    const killedErr = Object.assign(
+      new Error('Command failed: /usr/bin/osascript -l JavaScript -e ObjC.import("CoreWLAN"); ...'),
+      { killed: true, signal: 'SIGTERM' },
+    );
+    expect(formatWifiExecError('macOS', killedErr)).toContain('检测超时');
+    expect(formatWifiExecError('macOS', killedErr)).not.toContain('osascript');
+
+    const rawCmdErr = new Error(
+      'Command failed: /usr/bin/osascript -l JavaScript -e ObjC.import("CoreWLAN"); var client = ...',
+    );
+    const cleaned = formatWifiExecError('macOS', rawCmdErr);
+    expect(cleaned).not.toContain('ObjC.import');
+    expect(cleaned).toContain('暂时不可用');
+
+    const stderrErr = Object.assign(
+      new Error('Command failed: /usr/bin/osascript -l JavaScript -e ...'),
+      { stderr: 'execution error: Error: Wi-Fi interface busy (-2700)\n' },
+    );
+    expect(formatWifiExecError('macOS', stderrErr)).toBe(
+      'macOS Wi-Fi 扫描异常：execution error: Error: Wi-Fi interface busy (-2700)',
+    );
+  });
+
+  test('interpretMacScanPayload 正确解析原生 CoreWLAN 扫描结果、Wi-Fi 关闭与授权态提示', () => {
+    const ok = interpretMacScanPayload(
+      {
+        ok: true,
+        authStatus: 'authorized',
+        source: 'cache',
+        total: 2,
+        networks: [
+          { bssid: 'AA:BB:CC:DD:EE:01', ssid: 'LEC-5G', rssi: -52 },
+          { bssid: '', ssid: 'Hidden', rssi: -80 },
+        ],
+      },
+      true,
+    );
+    expect(ok.error).toBeUndefined();
+    expect(ok.samples).toEqual([{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'LEC-5G', rssi: -52 }]);
+
+    const off = interpretMacScanPayload({ ok: false, reason: 'wifi_powered_off' }, true);
+    expect(off.error).toContain('Wi-Fi 开关当前已关闭');
+
+    const notDet = interpretMacScanPayload(
+      {
+        ok: true,
+        authStatus: 'not_determined',
+        total: 5,
+        networks: [{ bssid: '', ssid: '', rssi: -60 }],
+      },
+      true,
+    );
+    expect(notDet.permissionDenied).toBe(true);
+    expect(notDet.error).toContain('点击「允许」');
+
+    const authButHidden = interpretMacScanPayload(
+      {
+        ok: true,
+        authStatus: 'authorized',
+        total: 5,
+        networks: [{ bssid: '', ssid: '', rssi: -60 }],
+      },
+      true,
+    );
+    expect(authButHidden.permissionDenied).toBe(true);
+    expect(authButHidden.error).toContain('重启 Orbit');
   });
 });

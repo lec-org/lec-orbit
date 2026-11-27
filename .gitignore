@@ -3,6 +3,7 @@ out/
 dist/
 release/
 resources/lec-doc-dist/
+resources/native/
 server/orbit-server
 server/*.exe
 *.log

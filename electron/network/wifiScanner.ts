@@ -1,5 +1,8 @@
 /** 跨平台周边 Wi-Fi 环境指纹扫描器（仅被动读取附近 802.11 AP 的 BSSID/SSID/RSSI，不依赖 NetBIOS 或局域网防火墙）。 */
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import type { WifiScanOptions, WifiScanResult } from '../../src/shared/ipc';
 import {
@@ -215,30 +218,236 @@ var client = $.CWWiFiClient.sharedWiFiClient;
 var iface = client.interface;
 if (!iface || iface.isNil()) {
   JSON.stringify({ ok: false, reason: "no_interface", total: 0, networks: [] });
+} else if (!iface.powerOn) {
+  JSON.stringify({ ok: false, reason: "wifi_powered_off", total: 0, networks: [] });
 } else {
-  var err = Ref();
-  var nets = iface.scanForNetworksWithNameError($(), err);
-  var out = [];
-  if (nets && !nets.isNil()) {
-    var arr = nets.allObjects;
-    var count = arr.count;
-    for (var i = 0; i < count; i++) {
-      var n = arr.objectAtIndex(i);
-      var bssid = n.bssid && !n.bssid.isNil() ? ObjC.unwrap(n.bssid) : "";
-      var ssid = n.ssid && !n.ssid.isNil() ? ObjC.unwrap(n.ssid) : "";
-      var rssi = Number(n.rssiValue);
-      out.push({ bssid: bssid, ssid: ssid, rssi: isNaN(rssi) ? -75 : rssi });
+  function extract(nets) {
+    var out = [];
+    if (nets && !nets.isNil()) {
+      var arr = nets.allObjects;
+      var count = arr.count;
+      for (var i = 0; i < count; i++) {
+        var n = arr.objectAtIndex(i);
+        var bssid = n.bssid && !n.bssid.isNil() ? ObjC.unwrap(n.bssid) : "";
+        var ssid = n.ssid && !n.ssid.isNil() ? ObjC.unwrap(n.ssid) : "";
+        var rssi = Number(n.rssiValue);
+        out.push({ bssid: bssid, ssid: ssid, rssi: isNaN(rssi) ? -75 : rssi });
+      }
     }
-    JSON.stringify({ ok: true, reason: "", total: out.length, networks: out });
+    return out;
+  }
+  var cached = extract(iface.cachedScanResults);
+  var hasCachedBssid = cached.some(function (x) { return !!x.bssid; });
+  if (hasCachedBssid) {
+    JSON.stringify({ ok: true, reason: "", total: cached.length, networks: cached });
   } else {
-    var errMsg = err[0] && !err[0].isNil() ? ObjC.unwrap(err[0].localizedDescription) : "scan_failed";
-    JSON.stringify({ ok: false, reason: errMsg, total: 0, networks: [] });
+    var err = Ref();
+    var nets = iface.scanForNetworksWithNameError($(), err);
+    if (nets && !nets.isNil()) {
+      var scanned = extract(nets);
+      JSON.stringify({ ok: true, reason: "", total: scanned.length, networks: scanned });
+    } else if (cached.length > 0) {
+      JSON.stringify({ ok: true, reason: "", total: cached.length, networks: cached });
+    } else {
+      var errMsg = err[0] && !err[0].isNil() ? ObjC.unwrap(err[0].localizedDescription) : "scan_failed";
+      JSON.stringify({ ok: false, reason: errMsg, total: 0, networks: [] });
+    }
   }
 }
 `;
 
+export interface MacCoreWlanPayload {
+  ok?: boolean;
+  reason?: string;
+  authStatus?: string;
+  source?: string;
+  total?: number;
+  networks?: Array<{ bssid?: string; ssid?: string; rssi?: number }>;
+}
+
+interface MacNativeWifiAddon {
+  scanWifi: (force?: boolean) => Promise<MacCoreWlanPayload>;
+  requestLocationPermission: () => string;
+}
+
+let cachedMacNativeAddon: MacNativeWifiAddon | null | undefined;
+
+/**
+ * 仅在 macOS 运行时懒加载进程内原生 CoreWLAN N-API 模块（orbit_wifi_darwin.node），
+ * 使定位权限校验直接绑定到 Orbit/Electron 主进程，而非系统 /usr/bin/osascript 子进程。
+ */
+function loadMacNativeWifiAddon(): MacNativeWifiAddon | null {
+  if (process.platform !== 'darwin') return null;
+  if (cachedMacNativeAddon !== undefined) return cachedMacNativeAddon;
+
+  const candidates: string[] = [];
+  if (typeof process.resourcesPath === 'string' && process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'native', 'orbit_wifi_darwin.node'));
+  }
+  candidates.push(path.join(process.cwd(), 'resources', 'native', 'orbit_wifi_darwin.node'));
+  if (typeof __dirname === 'string' && __dirname) {
+    candidates.push(path.resolve(__dirname, '../../resources/native/orbit_wifi_darwin.node'));
+    candidates.push(path.resolve(__dirname, '../../../resources/native/orbit_wifi_darwin.node'));
+  }
+
+  const uniqueCandidates = Array.from(new Set(candidates));
+  const runtimeRequire = createRequire(path.join(process.cwd(), 'package.json'));
+
+  for (const candidate of uniqueCandidates) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const loaded = runtimeRequire(candidate) as Partial<MacNativeWifiAddon>;
+      if (typeof loaded?.scanWifi === 'function') {
+        cachedMacNativeAddon = loaded as MacNativeWifiAddon;
+        return cachedMacNativeAddon;
+      }
+    } catch (err) {
+      console.warn(
+        `[orbit:wifi] 加载 macOS 原生模块失败 (${candidate}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  cachedMacNativeAddon = null;
+  return null;
+}
+
+/** 触发一次 macOS 原生 CoreLocation 定位权限请求，便于系统将 Orbit 注册到「定位服务」列表中。 */
+export function requestMacLocationPermission(): string | null {
+  const addon = loadMacNativeWifiAddon();
+  if (!addon || typeof addon.requestLocationPermission !== 'function') return null;
+  try {
+    return addon.requestLocationPermission();
+  } catch {
+    return null;
+  }
+}
+
+/** 将 macOS 原生/JXA CoreWLAN 扫描结果统一转换为标准 SinglePassResult 与精准中文提示。 */
+export function interpretMacScanPayload(
+  parsed: MacCoreWlanPayload,
+  usedNativeAddon: boolean,
+): SinglePassResult {
+  if (!parsed.ok) {
+    if (parsed.reason === 'no_interface') {
+      return {
+        samples: [],
+        error: '未检测到可用 Wi-Fi 网卡，请确认已打开 Mac 的 Wi-Fi 开关。',
+      };
+    }
+    if (parsed.reason === 'wifi_powered_off') {
+      return {
+        samples: [],
+        error: 'Mac 的 Wi-Fi 开关当前已关闭，请开启 Wi-Fi 后重试。',
+      };
+    }
+    return {
+      samples: [],
+      error: `macOS Wi-Fi 扫描失败：${parsed.reason || '未知错误'}`,
+    };
+  }
+
+  const rawNetworks = Array.isArray(parsed.networks) ? parsed.networks : [];
+  const samples: RawWifiSample[] = [];
+  for (const item of rawNetworks) {
+    const bssid = typeof item.bssid === 'string' ? normalizeBssid(item.bssid) : null;
+    if (!bssid) continue;
+    samples.push({
+      bssid,
+      ssid: typeof item.ssid === 'string' ? item.ssid.trim() : '',
+      rssi: typeof item.rssi === 'number' && Number.isFinite(item.rssi) ? item.rssi : -75,
+    });
+  }
+
+  if (samples.length === 0 && (parsed.total ?? rawNetworks.length) > 0) {
+    if (usedNativeAddon && parsed.authStatus === 'not_determined') {
+      return {
+        samples: [],
+        permissionDenied: true,
+        error:
+          '已检测到周边 Wi-Fi，请在弹出的系统定位授权窗口点击「允许」（或在系统设置中开启 Orbit 定位权限）后重试。',
+      };
+    }
+    if (usedNativeAddon && parsed.authStatus === 'authorized') {
+      return {
+        samples: [],
+        permissionDenied: true,
+        error:
+          'macOS 仍隐藏了路由器 BSSID：如刚开启定位权限请重启 Orbit；若在开发态从终端/IDE 启动，请同时为启动终端开启定位权限或使用打包版 Orbit.app。',
+      };
+    }
+    return {
+      samples: [],
+      permissionDenied: true,
+      error:
+        '已检测到周边 Wi-Fi，但 macOS 隐私策略隐藏了路由器 BSSID：请在「系统设置 → 隐私与安全性 → 定位服务」中开启 Orbit 的定位权限后重试。',
+    };
+  }
+
+  if (samples.length === 0) {
+    return {
+      samples: [],
+      error: '未扫描到周边 Wi-Fi 信号，请确认 Mac 的 Wi-Fi 已开启。',
+    };
+  }
+
+  return { samples };
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface ExecFileLikeError {
+  message?: string;
+  stderr?: string | Buffer;
+  code?: string | number;
+  killed?: boolean;
+  signal?: string | null;
+}
+
+/**
+ * 将 execFile 抛出的底层子进程错误清洗为面向用户的简短中文提示，
+ * 避免 Node.js 默认将完整命令行（如整段 osascript JXA 脚本源码）直接暴露到签到页 UI。
+ */
+export function formatWifiExecError(platformLabel: string, err: unknown): string {
+  const e = (err && typeof err === 'object' ? err : {}) as ExecFileLikeError;
+  const rawMessage = err instanceof Error ? err.message : String(err ?? '');
+
+  if (e.killed || e.signal === 'SIGTERM' || e.signal === 'SIGKILL' || e.code === 'ETIMEDOUT') {
+    return `${platformLabel} Wi-Fi 环境检测超时，请稍后重试或确认 Wi-Fi 开关已开启。`;
+  }
+
+  if (e.code === 'ENOENT') {
+    return `${platformLabel} 缺少系统 Wi-Fi 扫描工具，无法读取周边无线信号。`;
+  }
+
+  const rawStderr =
+    typeof e.stderr === 'string'
+      ? e.stderr
+      : Buffer.isBuffer(e.stderr)
+        ? e.stderr.toString('utf8')
+        : '';
+
+  // 优先提取 stderr 中的有效报错行；否则剥离 Node.js 自动拼接的 "Command failed: <完整命令>" 行
+  const cleanFromStderr = rawStderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !/^Command failed:/i.test(line));
+
+  const cleanFromMessage = rawMessage
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !/^Command failed:/i.test(line));
+
+  const summary = (cleanFromStderr || cleanFromMessage || '').trim();
+  if (!summary) {
+    return `${platformLabel} Wi-Fi 环境检测暂时不可用，请确认 Wi-Fi 已开启后重试。`;
+  }
+
+  const clipped = summary.length > 90 ? `${summary.slice(0, 88)}…` : summary;
+  return `${platformLabel} Wi-Fi 扫描异常：${clipped}`;
 }
 
 async function scanWindowsNetshOnce(): Promise<SinglePassResult> {
@@ -283,16 +492,19 @@ async function scanWindowsNetshOnce(): Promise<SinglePassResult> {
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/location|位置|privacy|隐私/i.test(msg)) {
+    const stderr =
+      err && typeof err === 'object' && 'stderr' in err ? String((err as ExecFileLikeError).stderr ?? '') : '';
+    if (/location|位置|privacy|隐私/i.test(`${msg}\n${stderr}`)) {
       return {
         samples: [],
         permissionDenied: true,
         error: 'Windows 定位权限未开启，系统阻止读取周边 Wi-Fi 列表：请在「设置 → 隐私和安全性 → 位置」中开启定位权限后重试。',
       };
     }
+    console.warn('[orbit:wifi] Windows netsh 扫描失败:', msg);
     return {
       samples: [],
-      error: `读取周边 Wi-Fi 信号失败：${msg}`,
+      error: formatWifiExecError('Windows', err),
     };
   }
 }
@@ -328,66 +540,57 @@ async function scanWindowsOnce(force: boolean): Promise<SinglePassResult> {
   return scanWindowsNetshOnce();
 }
 
-async function scanMacOnce(): Promise<SinglePassResult> {
-  try {
-    const { stdout } = await execFileAsync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', MAC_COREWLAN_JXA], {
-      timeout: 12_000,
-      encoding: 'utf8',
-      maxBuffer: 2 * 1024 * 1024,
-    });
-    const parsed = JSON.parse((stdout ?? '').trim()) as {
-      ok?: boolean;
-      reason?: string;
-      total?: number;
-      networks?: Array<{ bssid?: string; ssid?: string; rssi?: number }>;
-    };
-
-    if (!parsed.ok) {
-      if (parsed.reason === 'no_interface') {
+async function scanMacOnce(force: boolean): Promise<SinglePassResult> {
+  // 1. 优先使用进程内原生 CoreWLAN + CoreLocation N-API 模块（直享 Orbit 自身定位权限，不阻塞主线程）
+  const nativeAddon = loadMacNativeWifiAddon();
+  if (nativeAddon) {
+    try {
+      const parsed = await Promise.race([
+        nativeAddon.scanWifi(force),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            const err = Object.assign(new Error('macOS native CoreWLAN scan timeout'), {
+              killed: true,
+              code: 'ETIMEDOUT',
+            });
+            reject(err);
+          }, 18_000),
+        ),
+      ]);
+      return interpretMacScanPayload(parsed, true);
+    } catch (err) {
+      console.warn(
+        '[orbit:wifi] macOS 原生 CoreWLAN 扫描异常，回退 osascript:',
+        err instanceof Error ? err.message : String(err),
+      );
+      // 若属于超时，直接返回明确提示，不再重复发起更慢的 osascript 阻塞扫描
+      if (err && typeof err === 'object' && 'killed' in err && (err as ExecFileLikeError).killed) {
         return {
           samples: [],
-          error: '未检测到可用 Wi-Fi 网卡，请确认已打开 Mac 的 Wi-Fi 开关。',
+          error: formatWifiExecError('macOS', err),
         };
       }
-      return {
-        samples: [],
-        error: `macOS Wi-Fi 扫描失败：${parsed.reason || '未知错误'}`,
-      };
     }
+  }
 
-    const rawNetworks = Array.isArray(parsed.networks) ? parsed.networks : [];
-    const samples: RawWifiSample[] = [];
-    for (const item of rawNetworks) {
-      const bssid = typeof item.bssid === 'string' ? normalizeBssid(item.bssid) : null;
-      if (!bssid) continue;
-      samples.push({
-        bssid,
-        ssid: typeof item.ssid === 'string' ? item.ssid.trim() : '',
-        rssi: typeof item.rssi === 'number' && Number.isFinite(item.rssi) ? item.rssi : -75,
-      });
-    }
-
-    if (samples.length === 0 && (parsed.total ?? rawNetworks.length) > 0) {
-      return {
-        samples: [],
-        permissionDenied: true,
-        error:
-          '已检测到周边 Wi-Fi，但 macOS 隐私策略隐藏了路由器 BSSID：请在「系统设置 → 隐私与安全性 → 定位服务」中开启 Orbit 的定位权限后重试。',
-      };
-    }
-
-    if (samples.length === 0) {
-      return {
-        samples: [],
-        error: '未扫描到周边 Wi-Fi 信号，请确认 Mac 的 Wi-Fi 已开启。',
-      };
-    }
-
-    return { samples };
+  // 2. 兜底回退：开发机未编译原生模块时回退 osascript
+  try {
+    const { stdout } = await execFileAsync(
+      '/usr/bin/osascript',
+      ['-l', 'JavaScript', '-e', MAC_COREWLAN_JXA],
+      {
+        timeout: 15_000,
+        encoding: 'utf8',
+        maxBuffer: 2 * 1024 * 1024,
+      },
+    );
+    const parsed = JSON.parse((stdout ?? '').trim()) as MacCoreWlanPayload;
+    return interpretMacScanPayload(parsed, false);
   } catch (err) {
+    console.warn('[orbit:wifi] macOS CoreWLAN 扫描异常:', err instanceof Error ? err.message : String(err));
     return {
       samples: [],
-      error: `macOS Wi-Fi 扫描异常：${err instanceof Error ? err.message : String(err)}`,
+      error: formatWifiExecError('macOS', err),
     };
   }
 }
@@ -425,16 +628,17 @@ async function scanLinuxOnce(force: boolean): Promise<SinglePassResult> {
     }
     return { samples };
   } catch (err) {
+    console.warn('[orbit:wifi] Linux nmcli 扫描异常:', err instanceof Error ? err.message : String(err));
     return {
       samples: [],
-      error: `Linux Wi-Fi 扫描失败（需安装 NetworkManager/nmcli）：${err instanceof Error ? err.message : String(err)}`,
+      error: formatWifiExecError('Linux', err),
     };
   }
 }
 
 async function runSinglePlatformScan(force: boolean): Promise<SinglePassResult> {
   if (process.platform === 'win32') return scanWindowsOnce(force);
-  if (process.platform === 'darwin') return scanMacOnce();
+  if (process.platform === 'darwin') return scanMacOnce(force);
   if (process.platform === 'linux') return scanLinuxOnce(force);
   return {
     samples: [],
