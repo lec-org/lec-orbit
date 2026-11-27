@@ -1,4 +1,4 @@
-/** LEC 工作室考勤与娱乐称号目录（22 个自动判定称号：原 11 个基础称号 + 11 个 Orbit 扩展称号）。 */
+/** LEC 工作室考勤与娱乐称号目录（23 个自动判定称号：原 11 个基础称号 + 12 个 Orbit 扩展称号）。 */
 
 export type TitleCategory = 'honor' | 'routine' | 'fun' | 'debuff';
 

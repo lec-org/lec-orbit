@@ -496,10 +496,15 @@ export function PunchGrowthPage(): JSX.Element {
                   variant="glass"
                   size="small"
                   loading={equippingId === '__auto__'}
+                  disabled={equippingId !== null && equippingId !== '__auto__'}
                   onClick={async () => {
+                    if (equippingId !== null) return;
                     setEquippingId('__auto__');
-                    await equipTitle(null);
-                    setEquippingId(null);
+                    try {
+                      await equipTitle(null);
+                    } finally {
+                      setEquippingId(null);
+                    }
                   }}
                 >
                   恢复自动
@@ -598,10 +603,15 @@ export function PunchGrowthPage(): JSX.Element {
                                 variant="glass"
                                 size="small"
                                 loading={equippingId === `vis:${item.id}`}
+                                disabled={equippingId !== null && equippingId !== `vis:${item.id}`}
                                 onClick={async () => {
+                                  if (equippingId !== null) return;
                                   setEquippingId(`vis:${item.id}`);
-                                  await setTitleVisibility(item.id, !item.hidden);
-                                  setEquippingId(null);
+                                  try {
+                                    await setTitleVisibility(item.id, !item.hidden);
+                                  } finally {
+                                    setEquippingId(null);
+                                  }
                                 }}
                               >
                                 {item.hidden ? '开启展示' : '关闭展示'}
@@ -624,10 +634,15 @@ export function PunchGrowthPage(): JSX.Element {
                                 variant="filled"
                                 size="small"
                                 loading={isBusy}
+                                disabled={equippingId !== null && !isBusy}
                                 onClick={async () => {
+                                  if (equippingId !== null) return;
                                   setEquippingId(item.id);
-                                  await equipTitle(item.id);
-                                  setEquippingId(null);
+                                  try {
+                                    await equipTitle(item.id);
+                                  } finally {
+                                    setEquippingId(null);
+                                  }
                                 }}
                               >
                                 佩戴

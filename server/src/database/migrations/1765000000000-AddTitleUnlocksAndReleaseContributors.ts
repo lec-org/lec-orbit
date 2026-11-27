@@ -16,22 +16,23 @@ export class AddTitleUnlocksAndReleaseContributors1765000000000 implements Migra
 
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS orbit_release_contributors (
-        tag_name TEXT PRIMARY KEY,
         repo TEXT NOT NULL DEFAULT 'lec-org/lec-orbit',
+        tag_name TEXT NOT NULL,
         published_at TIMESTAMPTZ NOT NULL,
         contributor_logins JSONB NOT NULL DEFAULT '[]'::jsonb,
-        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (repo, tag_name)
       );
     `);
 
     await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS idx_orbit_release_contributors_published
-        ON orbit_release_contributors (published_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_orbit_release_contributors_repo_published
+        ON orbit_release_contributors (repo, published_at DESC);
     `);
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_orbit_release_contributors_published;`);
+    await queryRunner.query(`DROP INDEX IF EXISTS idx_orbit_release_contributors_repo_published;`);
     await queryRunner.query(`DROP TABLE IF EXISTS orbit_release_contributors;`);
     await queryRunner.query(`
       ALTER TABLE punch_users

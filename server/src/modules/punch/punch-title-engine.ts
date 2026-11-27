@@ -1,6 +1,6 @@
 /**
- * 称号系统纯计算引擎（零外部时区库依赖，严格按 Asia/Shanghai UTC+8 自然日与考核周评估全部 22 个称号）。
- * 覆盖原 LecPunch 11 个基础称号 + Orbit 11 个扩展称号（含课表联动与无课表分层兜底、长期持久化与显隐控制）。
+ * 称号系统纯计算引擎（零外部时区库依赖，严格按 Asia/Shanghai UTC+8 自然日与考核周评估全部 23 个称号）。
+ * 覆盖原 LecPunch 11 个基础称号 + Orbit 12 个扩展称号（含课表联动与无课表分层兜底、长期持久化与显隐控制）。
  */
 import type { BusyScheduleSnapshot } from '../calendar/entities/member-busy-snapshot.entity.js';
 import { comprehensiveDurationSeconds, weeklyGoalSeconds } from './punch-shared.util.js';
@@ -447,6 +447,8 @@ export function extractCardInteractionsFromReceipt(receipt: {
 
   const cardName = result.actionCard?.name ?? '';
   for (const effect of result.effects) {
+    // 跳过判定过程日志（如「雷电」命中前生成的 judgement 项），避免被无懈可击阻挡/反弹时误判为负面效果已生效
+    if (effect.kind === 'judgement') continue;
     const targetId = effect.target?.id;
     if (!targetId || targetId === actorId) continue;
 
@@ -594,20 +596,30 @@ interface ClassAttendanceWeekEval {
   totalClassOverlapSec: number;
 }
 
+/** 判断一份课表快照是否具备有效课程与开学日期（用于区分“已导课表”与“未导课表”）。 */
+function hasValidScheduleSnapshot(
+  schedule: BusyScheduleSnapshot | null | undefined,
+): schedule is BusyScheduleSnapshot {
+  return Boolean(
+    schedule &&
+      Array.isArray(schedule.courses) &&
+      schedule.courses.length > 0 &&
+      parseDateOnlyUtc(schedule.startDate) !== null,
+  );
+}
+
 /** 统一解析某成员在指定一周（7 天）内的每日上课时间段：个人课表 → 同年级课表 → SWPU 标准作息。 */
 function resolveClassWindowsForWeek(
   member: TitleEngineMember,
   weekDayKeys: string[],
   gradePeerSchedules: ReadonlyArray<BusyScheduleSnapshot>,
 ): ResolvedClassWeek {
-  // 1. 优先使用成员已导入的个人课表
+  // 1. 优先使用成员已导入的个人课表：若处于寒暑假或结课周（非教学周/无排课），直接返回空课日，不再穿透到兜底模式
   const personal = member.scheduleSnapshot;
-  if (personal && Array.isArray(personal.courses) && personal.courses.length > 0) {
-    let anyInTerm = false;
+  if (hasValidScheduleSnapshot(personal)) {
     const days: ResolvedClassDay[] = [];
     for (const dKey of weekDayKeys) {
       const expanded = expandPersonalScheduleDay(personal, dKey);
-      if (expanded.inTerm) anyInTerm = true;
       const totalClassSec = expanded.intervals.reduce(
         (acc, it) => acc + Math.floor((it.endMs - it.startMs) / 1000),
         0,
@@ -616,19 +628,18 @@ function resolveClassWindowsForWeek(
         days.push({ dayKey: dKey, intervals: expanded.intervals, totalClassSec });
       }
     }
-    if (anyInTerm) {
-      return { mode: 'personal', days };
-    }
+    return { mode: 'personal', days };
   }
 
-  // 2. 第一级兜底：同年级已导入课表的同学（至少 2 人）按半数以上高频有课节次推断
-  if (gradePeerSchedules.length >= 2) {
-    let anyInTermPeer = false;
+  // 2. 第一级兜底：同年级已有 ≥ 2 名同学同步有效课表，按半数以上高频有课节次推断；
+  //    若同年级课表均处于寒暑假或结课周（本周无课），直接返回空课日，不再穿透至标准兜底误发假期称号
+  const validPeers = gradePeerSchedules.filter(hasValidScheduleSnapshot);
+  if (validPeers.length >= 2) {
     const days: ResolvedClassDay[] = [];
     for (const dKey of weekDayKeys) {
       const sectionCounts = new Map<number, number>();
       let inTermCount = 0;
-      for (const peerSched of gradePeerSchedules) {
+      for (const peerSched of validPeers) {
         const exp = expandPersonalScheduleDay(peerSched, dKey);
         if (!exp.inTerm) continue;
         inTermCount += 1;
@@ -637,7 +648,6 @@ function resolveClassWindowsForWeek(
         }
       }
       if (inTermCount < 2) continue;
-      anyInTermPeer = true;
       const minPeerVotes = Math.ceil(inTermCount / 2);
       const inferredIntervals: TimeIntervalMs[] = [];
       for (const [sec, count] of sectionCounts.entries()) {
@@ -660,9 +670,7 @@ function resolveClassWindowsForWeek(
         days.push({ dayKey: dKey, intervals: merged, totalClassSec });
       }
     }
-    if (anyInTermPeer && days.length > 0) {
-      return { mode: 'grade-fallback', days };
-    }
+    return { mode: 'grade-fallback', days };
   }
 
   // 3. 第二级兜底：西南石油大学标准工作日白昼教学时段（周一至周五 08:00–12:15 & 14:30–17:55）
@@ -693,7 +701,6 @@ function evaluateClassAttendanceWeek(
   weekDayKeys: string[],
   metrics: UserDailyMetrics,
   gradePeerSchedules: ReadonlyArray<BusyScheduleSnapshot>,
-  isCurrentWeek: boolean,
 ): ClassAttendanceWeekEval {
   const resolved = resolveClassWindowsForWeek(member, weekDayKeys, gradePeerSchedules);
   let honestHitDays = 0;
@@ -716,12 +723,11 @@ function evaluateClassAttendanceWeek(
   }
 
   const classDays = resolved.days.length;
+  // 个人/同年级课表模式：只要本周存在上课日且每一个上课日均达标即可解锁（兼容大三等每周仅 1–2 天有课的成员）
   const honestQualified =
     resolved.mode === 'standard-fallback'
       ? classDays >= 5 && honestHitDays >= 5
-      : classDays > 0 &&
-        honestHitDays === classDays &&
-        honestHitDays >= (isCurrentWeek ? Math.max(3, classDays) : 1);
+      : classDays > 0 && honestHitDays === classDays;
 
   return {
     mode: resolved.mode,
@@ -732,7 +738,63 @@ function evaluateClassAttendanceWeek(
   };
 }
 
-/** 评估全团队所有成员的 22 项自动称号、展示亮牌与进度文案。 */
+/** 根据成员各称号解锁进度、请求佩戴 ID 及隐藏列表，纯函数投影展示亮牌与图鉴项。 */
+export function projectMemberTitleDisplay(
+  statusById: Record<string, { unlocked: boolean; progressText?: string }>,
+  requestedEquip: string | null,
+  hiddenTitleIds: ReadonlyArray<string>,
+): {
+  equippedTitleId: string | null;
+  hiddenTitleIds: string[];
+  displayTitles: MemberTitleBadge[];
+  catalog: TitleEvaluationItem[];
+} {
+  const hiddenSet = new Set(hiddenTitleIds);
+  const isHidden = (defId: string, hideable?: boolean): boolean =>
+    Boolean(hideable && hiddenSet.has(defId));
+
+  const unlockedNonForced = TITLE_CATALOG.filter(
+    (def) => !def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
+  ).sort((a, b) => b.priority - a.priority);
+
+  const validEquipped = requestedEquip
+    ? unlockedNonForced.find((def) => def.id === requestedEquip) ?? null
+    : null;
+  const activePrimary = validEquipped ?? unlockedNonForced[0] ?? null;
+
+  const activeForced = TITLE_CATALOG.filter(
+    (def) => def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
+  ).sort((a, b) => b.priority - a.priority);
+
+  const displayTitles: MemberTitleBadge[] = [
+    ...(activePrimary ? [toMemberTitleBadge(activePrimary)] : []),
+    ...activeForced.map(toMemberTitleBadge),
+  ];
+
+  const catalog: TitleEvaluationItem[] = TITLE_CATALOG.map((def) => {
+    const st = statusById[def.id] ?? { unlocked: false };
+    const hidden = isHidden(def.id, def.hideable);
+    return {
+      ...toMemberTitleBadge(def),
+      unlocked: st.unlocked,
+      equipped: Boolean(
+        !hidden &&
+          ((activePrimary && activePrimary.id === def.id) || (def.forced && st.unlocked)),
+      ),
+      ...(def.hideable ? { hidden } : {}),
+      progressText: st.progressText,
+    };
+  });
+
+  return {
+    equippedTitleId: validEquipped?.id ?? null,
+    hiddenTitleIds: [...hiddenSet],
+    displayTitles,
+    catalog,
+  };
+}
+
+/** 评估全团队所有成员的 23 项自动称号、展示亮牌与进度文案。 */
 export function evaluateTeamTitles(
   input: EvaluateTeamTitlesInput,
 ): Map<string, MemberTitleEvaluation> {
@@ -1074,14 +1136,12 @@ export function evaluateTeamTitles(
       currentWeekDayKeys,
       metrics,
       gradePeers,
-      true,
     );
     const prevClassEval = evaluateClassAttendanceWeek(
       member,
       prevWeek1DayKeys,
       metrics,
       gradePeers,
-      false,
     );
     const mostHonestUnlocked = curClassEval.honestQualified || prevClassEval.honestQualified;
     // 三好学生：上周有有效打卡（≥ 1h，避免一整周不打卡误拿）且上周所有上课期间重叠 ≤ 5 分钟（零课中打卡）
@@ -1090,12 +1150,24 @@ export function evaluateTeamTitles(
       prev1Recorded >= ONE_HOUR_SECONDS &&
       prevClassEval.classDays > 0 &&
       prevClassEval.totalClassOverlapSec <= GOOD_STUDENT_GRACE_SECONDS;
-    const classFallbackLabel =
-      curClassEval.mode === 'grade-fallback'
+    const formatClassFallbackLabel = (mode: ScheduleResolveMode): string =>
+      mode === 'grade-fallback'
         ? '未导课表（按同年级课表兜底）· '
-        : curClassEval.mode === 'standard-fallback'
+        : mode === 'standard-fallback'
           ? '未导课表（按标准教学时段兜底）· '
           : '';
+    const curFallbackLabel = formatClassFallbackLabel(curClassEval.mode);
+    // 按实际触发周对应的课表解析模式生成兜底文案，避免刚导课表或开学首周出现口径错位
+    const mostHonestFallbackLabel = formatClassFallbackLabel(
+      curClassEval.honestQualified
+        ? curClassEval.mode
+        : prevClassEval.honestQualified
+          ? prevClassEval.mode
+          : curClassEval.mode,
+    );
+    const goodStudentFallbackLabel = formatClassFallbackLabel(
+      goodStudentUnlocked ? prevClassEval.mode : curClassEval.mode,
+    );
 
     // 24. 神（单周纯真实打卡时长超过 50 小时）
     const bestRecordedWeekSec = Math.max(curWeekRecorded, prev1Recorded);
@@ -1158,16 +1230,20 @@ export function evaluateTeamTitles(
       'most-honest': {
         unlocked: mostHonestUnlocked,
         progressText: mostHonestUnlocked
-          ? `${classFallbackLabel}已达成每天上课期间猛猛打卡`
-          : `${classFallbackLabel}本周 ${curClassEval.honestHitDays}/${curClassEval.classDays || 5} 个上课日达标`,
+          ? `${mostHonestFallbackLabel}已达成每天上课期间猛猛打卡`
+          : curClassEval.classDays === 0
+            ? `${curFallbackLabel}本周暂无排课`
+            : `${curFallbackLabel}本周 ${curClassEval.honestHitDays}/${curClassEval.classDays} 个上课日达标`,
       },
       'good-student': {
         unlocked: goodStudentUnlocked,
         progressText: goodStudentUnlocked
-          ? `${classFallbackLabel}上周上课期间零打卡，荣获三好学生`
-          : curClassEval.totalClassOverlapSec > GOOD_STUDENT_GRACE_SECONDS
-            ? `${classFallbackLabel}本周已在课中打卡 ${Math.round(curClassEval.totalClassOverlapSec / 60)} 分钟`
-            : `${classFallbackLabel}本周目前课中零打卡（需整周保持且周打卡 ≥ 1h）`,
+          ? `${goodStudentFallbackLabel}上周上课期间零打卡，荣获三好学生`
+          : curClassEval.classDays === 0
+            ? `${curFallbackLabel}本周暂无排课`
+            : curClassEval.totalClassOverlapSec > GOOD_STUDENT_GRACE_SECONDS
+              ? `${curFallbackLabel}本周已在课中打卡 ${Math.round(curClassEval.totalClassOverlapSec / 60)} 分钟`
+              : `${curFallbackLabel}本周目前课中零打卡（需整周保持且周打卡 ≥ 1h）`,
       },
       'weekly-perfect': {
         unlocked: weeklyPerfectUnlocked,
@@ -1260,49 +1336,15 @@ export function evaluateTeamTitles(
       (def) => def.persistent && statusById[def.id]?.unlocked && !persistentSet.has(def.id),
     ).map((def) => def.id);
 
-    const isHidden = (defId: string, hideable?: boolean): boolean =>
-      Boolean(hideable && hiddenSet.has(defId));
-
-    const unlockedNonForced = TITLE_CATALOG.filter(
-      (def) => !def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
-    ).sort((a, b) => b.priority - a.priority);
-
-    const requestedEquip = member.equippedTitleId ?? null;
-    const validEquipped = requestedEquip
-      ? unlockedNonForced.find((def) => def.id === requestedEquip) ?? null
-      : null;
-    const activePrimary = validEquipped ?? unlockedNonForced[0] ?? null;
-
-    const activeForced = TITLE_CATALOG.filter(
-      (def) => def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
-    ).sort((a, b) => b.priority - a.priority);
-
-    const displayTitles: MemberTitleBadge[] = [
-      ...(activePrimary ? [toMemberTitleBadge(activePrimary)] : []),
-      ...activeForced.map(toMemberTitleBadge),
-    ];
-
-    const catalog: TitleEvaluationItem[] = TITLE_CATALOG.map((def) => {
-      const st = statusById[def.id] ?? { unlocked: false };
-      const hidden = isHidden(def.id, def.hideable);
-      return {
-        ...toMemberTitleBadge(def),
-        unlocked: st.unlocked,
-        equipped: Boolean(
-          !hidden &&
-            ((activePrimary && activePrimary.id === def.id) || (def.forced && st.unlocked)),
-        ),
-        ...(def.hideable ? { hidden } : {}),
-        progressText: st.progressText,
-      };
-    });
+    const projected = projectMemberTitleDisplay(
+      statusById,
+      member.equippedTitleId ?? null,
+      [...hiddenSet],
+    );
 
     results.set(member.id, {
-      equippedTitleId: validEquipped?.id ?? null,
-      hiddenTitleIds: [...hiddenSet],
+      ...projected,
       newlyUnlockedPersistentTitleIds,
-      displayTitles,
-      catalog,
     });
   }
 

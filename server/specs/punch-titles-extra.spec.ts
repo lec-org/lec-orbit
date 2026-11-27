@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { BusyScheduleSnapshot } from '../src/modules/calendar/entities/member-busy-snapshot.entity.js';
-import { attributeMergedPrsToReleases } from '../src/modules/punch/github-contributor-sync.service.js';
+import {
+  GitHubContributorSyncService,
+  attributeMergedPrsToReleases,
+} from '../src/modules/punch/github-contributor-sync.service.js';
 import { TITLE_CATALOG } from '../src/modules/punch/punch-title-catalog.js';
 import {
   evaluateTeamTitles,
@@ -10,6 +13,7 @@ import {
   shanghaiDayStartMs,
   type TitleEngineSession,
 } from '../src/modules/punch/punch-title-engine.js';
+import { PunchTitlesService } from '../src/modules/punch/punch-titles.service.js';
 
 /** 构造上海时间某天 HH:MM 起持续 durationMinutes 分钟的已签退会话。 */
 function makeSession(
@@ -64,7 +68,7 @@ function makeWeekdayMorningSchedule(): BusyScheduleSnapshot {
   };
 }
 
-describe('Orbit 扩展称号系统（11 个新增称号 + 课表联动与兜底）', () => {
+describe('Orbit 扩展称号系统（12 个新增称号 + 课表联动与兜底）', () => {
   // 2026-09-16 为周三（第 2 周），prevWeek1 = 2026-09-07（第 1 周周一）
   const now = new Date(shanghaiDayStartMs('2026-09-16', 20, 0));
   const prevWeekKey = '2026-09-07';
@@ -465,5 +469,263 @@ describe('Orbit 扩展称号系统（11 个新增称号 + 课表联动与兜底�
     expect(getGood('std_good')?.unlocked).toBe(true);
     expect(getGood('std_good')?.progressText).toContain('标准教学时段兜底');
     expect(getGood('zero_punch')?.unlocked).toBe(false);
+  });
+
+  test('回归 P1-3：雷电被无懈可击阻挡或反弹时跳过 judgement 过程项，不误解锁龙王', () => {
+    const t1 = new Date(shanghaiDayStartMs('2026-09-15', 10, 0)).toISOString();
+    const t2 = new Date(shanghaiDayStartMs('2026-09-15', 11, 0)).toISOString();
+    const t3 = new Date(shanghaiDayStartMs('2026-09-15', 12, 0)).toISOString();
+    const t4 = new Date(shanghaiDayStartMs('2026-09-15', 13, 0)).toISOString();
+
+    const blockedLightning = [
+      ...extractCardInteractionsFromReceipt({
+        actorId: 'A',
+        at: t1,
+        result: {
+          action: 'use',
+          actionCard: { name: '加时卡' },
+          effects: [{ target: { id: 'B' }, kind: 'time', deltaSeconds: 1800, outcome: 'applied' }],
+        },
+      }),
+      ...extractCardInteractionsFromReceipt({
+        actorId: 'B',
+        at: t2,
+        result: {
+          action: 'use',
+          actionCard: { name: '红桃 K' },
+          effects: [{ target: { id: 'A' }, kind: 'time', deltaSeconds: -1800, outcome: 'applied' }],
+        },
+      }),
+      // 雷电判定命中但被目标无懈可击阻挡 / 反弹
+      ...extractCardInteractionsFromReceipt({
+        actorId: 'A',
+        at: t3,
+        result: {
+          action: 'use',
+          actionCard: { id: 'sr-lightning', name: '雷电' },
+          effects: [
+            { target: { id: 'B' }, kind: 'judgement', outcome: 'applied' },
+            { target: { id: 'B' }, kind: 'time', deltaSeconds: 0, outcome: 'blocked' },
+          ],
+        },
+      }),
+      ...extractCardInteractionsFromReceipt({
+        actorId: 'A',
+        at: t4,
+        result: {
+          action: 'use',
+          actionCard: { id: 'sr-lightning', name: '雷电' },
+          effects: [
+            { target: { id: 'B' }, kind: 'judgement', outcome: 'applied' },
+            { target: { id: 'B' }, kind: 'time', deltaSeconds: 0, outcome: 'reflected' },
+          ],
+        },
+      }),
+    ];
+
+    const res = evaluateTeamTitles({
+      now,
+      members: [
+        { id: 'A', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'B', enrollYear: 2025, createdAt: oldCreatedAt },
+      ],
+      sessions: [],
+      manualAdjustmentsByUserWeek: new Map(),
+      entertainmentByUserWeek: new Map(),
+      currentWeekCardInteractions: blockedLightning,
+    });
+    expect(res.get('A')?.catalog.find((c) => c.id === 'lu-dongbin')?.unlocked).toBe(true);
+    expect(res.get('A')?.catalog.find((c) => c.id === 'dragon-king')?.unlocked).toBe(false);
+  });
+
+  test('回归 P1-4：寒暑假/结课周不穿透标准兜底，且本周有课日 < 3 天时最老实之人可正常解锁', () => {
+    const sched = makeWeekdayMorningSchedule();
+
+    // 1. 寒假（2027-02-03，超过第 20 周）：已导个人课表与同年级 ≥ 2 人课表均不应穿透到 standard-fallback
+    const winterNow = new Date(shanghaiDayStartMs('2027-02-03', 20, 0));
+    const winterPrevDays = ['2027-01-25', '2027-01-26', '2027-01-27', '2027-01-28', '2027-01-29'];
+    const winterSessions: TitleEngineSession[] = [];
+    for (const d of winterPrevDays) {
+      winterSessions.push(makeSession('personal_vac', d, '2027-01-25', 9, 0, 120));
+      winterSessions.push(makeSession('grade_vac', d, '2027-01-25', 9, 0, 120));
+    }
+    const winterRes = evaluateTeamTitles({
+      now: winterNow,
+      members: [
+        { id: 'personal_vac', enrollYear: 2025, createdAt: oldCreatedAt, scheduleSnapshot: sched },
+        { id: 'peer_vac', enrollYear: 2025, createdAt: oldCreatedAt, scheduleSnapshot: sched },
+        { id: 'grade_vac', enrollYear: 2025, createdAt: oldCreatedAt, scheduleSnapshot: null },
+      ],
+      sessions: winterSessions,
+      manualAdjustmentsByUserWeek: new Map(),
+      entertainmentByUserWeek: new Map(),
+      currentWeekCardInteractions: [],
+    });
+    expect(winterRes.get('personal_vac')?.catalog.find((c) => c.id === 'most-honest')?.unlocked).toBe(false);
+    expect(winterRes.get('personal_vac')?.catalog.find((c) => c.id === 'good-student')?.unlocked).toBe(false);
+    expect(winterRes.get('personal_vac')?.catalog.find((c) => c.id === 'most-honest')?.progressText).not.toContain('未导课表');
+    expect(winterRes.get('grade_vac')?.catalog.find((c) => c.id === 'most-honest')?.unlocked).toBe(false);
+    expect(winterRes.get('grade_vac')?.catalog.find((c) => c.id === 'most-honest')?.progressText).not.toContain('标准教学时段兜底');
+
+    // 2. 本周仅 2 天有课（大三课少场景），本周两天都在课中猛猛打卡应正常解锁「最老实之人」
+    const twoDaySched: BusyScheduleSnapshot = {
+      ...sched,
+      courses: [
+        {
+          id: 'c_junior',
+          name: '编译原理',
+          color: '#6366F1',
+          meetings: [1, 3].map((dow) => ({
+            id: `jm-${dow}`,
+            dayOfWeek: dow,
+            startSection: 1,
+            endSection: 2,
+            weeks: [2],
+            location: '明理楼 B201',
+            teacher: '李老师',
+          })),
+        },
+      ],
+    };
+    const twoDayRes = evaluateTeamTitles({
+      now,
+      members: [{ id: 'junior', enrollYear: 2023, createdAt: oldCreatedAt, scheduleSnapshot: twoDaySched }],
+      sessions: [
+        makeSession('junior', '2026-09-14', curWeekKey, 8, 0, 60),
+        makeSession('junior', '2026-09-16', curWeekKey, 8, 0, 60),
+      ],
+      manualAdjustmentsByUserWeek: new Map(),
+      entertainmentByUserWeek: new Map(),
+      currentWeekCardInteractions: [],
+    });
+    expect(twoDayRes.get('junior')?.catalog.find((c) => c.id === 'most-honest')?.unlocked).toBe(true);
+  });
+
+  test('回归 P1-5：attributeMergedPrsToReleases 严格遵守历史下界，GitHubContributorSyncService 按 repo 隔离查询', async () => {
+    const windows = attributeMergedPrsToReleases(
+      [
+        { tagName: 'v0.2.3', publishedAt: new Date('2026-08-01T00:00:00Z') },
+        { tagName: 'v0.2.4', publishedAt: new Date('2026-09-01T00:00:00Z') },
+      ],
+      [
+        { mergedAt: new Date('2026-06-15T00:00:00Z'), authorLogin: 'ancient_dev' },
+        { mergedAt: new Date('2026-07-15T00:00:00Z'), authorLogin: 'current_dev' },
+      ],
+      { earliestLowerBoundExclusive: new Date('2026-07-01T00:00:00Z') },
+    );
+    expect(windows[0]!.contributorLogins).toEqual(['current_dev']);
+
+    const findCalls: unknown[] = [];
+    const mockReleaseRepo = {
+      find: async (opts: unknown) => {
+        findCalls.push(opts);
+        return [];
+      },
+      query: async () => [],
+    };
+    const syncSvc = new GitHubContributorSyncService(
+      mockReleaseRepo as never,
+      { nodeEnv: 'test', orbitGithubRepo: 'lec-org/lec-orbit' } as never,
+    );
+    await syncSvc.listReleaseContributors();
+    expect(findCalls[0]).toEqual({
+      where: { repo: 'lec-org/lec-orbit' },
+      order: { publishedAt: 'ASC' },
+    });
+  });
+
+  test('回归 P0-1 / P1-2 / P2-6：称号服务单列原子持久化、SQL 下推、single-flight 与显隐资格校验', async () => {
+    let userSaveCalls = 0;
+    let userFindCalls = 0;
+    let cardArchiveFindCalls = 0;
+    const userQueries: Array<{ sql: string; params: unknown[] }> = [];
+    const archiveQueries: Array<{ sql: string; params: unknown[] }> = [];
+
+    const mockMember = {
+      id: 'u1',
+      teamId: 'team-1',
+      logtoUserId: 'sso-u1',
+      enrollYear: 2025,
+      status: 'active',
+      createdAt: oldCreatedAt,
+      equippedTitleId: null as string | null,
+      persistentTitleIds: [] as string[],
+      hiddenTitleIds: [] as string[],
+    };
+
+    const mockUserRepo = {
+      find: async () => {
+        userFindCalls += 1;
+        await new Promise((r) => setTimeout(r, 15));
+        return [{ ...mockMember }];
+      },
+      save: async () => {
+        userSaveCalls += 1;
+        return [];
+      },
+      query: async (sql: string, params: unknown[]) => {
+        userQueries.push({ sql, params });
+        if (sql.includes('RETURNING')) {
+          return [{ equippedTitleId: 'card-collector', hiddenTitleIds: [] }];
+        }
+        return [];
+      },
+    };
+
+    const mockCardActionRepo = {
+      find: async () => {
+        cardArchiveFindCalls += 1;
+        return [];
+      },
+      query: async (sql: string, params: unknown[]) => {
+        archiveQueries.push({ sql, params });
+        return [];
+      },
+    };
+
+    const svc = new PunchTitlesService(
+      mockUserRepo as never,
+      { find: async () => [] } as never,
+      { query: async () => [] } as never,
+      {
+        findOne: async () => ({
+          state: { members: { u1: { discovered: ['c1', 'c2', 'c3', 'c4', 'c5'] } } },
+          receipts: {},
+        }),
+      } as never,
+      { find: async () => [] } as never,
+      mockCardActionRepo as never,
+      { find: async () => [] } as never,
+      { find: async () => [] } as never,
+      { getMemberKey: (id: string) => id } as never,
+      { getWeeklyTradeMinutesSummary: async () => ({ items: [], affectsAssessment: false }) } as never,
+      { listReleaseContributors: async () => [] } as never,
+    );
+
+    // 1. 并发两次读触发 single-flight：仅执行 1 次团队查询，且通过原子 SQL（非 userRepo.save）持久化新解锁长期称号
+    await Promise.all([
+      svc.getTeamDisplayTitlesByUserId('team-1'),
+      svc.getTeamDisplayTitlesByUserId('team-1'),
+    ]);
+    expect(userFindCalls).toBe(1);
+    expect(userSaveCalls).toBe(0);
+    expect(cardArchiveFindCalls).toBe(0);
+    expect(archiveQueries.length).toBe(3);
+    expect(userQueries.some((q) => q.sql.includes('SET persistent_title_ids'))).toBe(true);
+
+    // 2. equipTitle 仅做 1 次团队快照重算，不调用 userRepo.save
+    userFindCalls = 0;
+    const equipRes = await svc.equipTitle('team-1', 'u1', 'card-collector');
+    expect(userFindCalls).toBe(1);
+    expect(userSaveCalls).toBe(0);
+    expect(equipRes.equippedTitleId).toBe('card-collector');
+
+    // 3. setTitleVisibility 禁止对未解锁称号提前关闭展示，也禁止非近三级成员操作
+    await expect(svc.setTitleVisibility('team-1', 'u1', 'collection-king', true)).rejects.toThrow(
+      '尚未解锁',
+    );
+    await expect(svc.setTitleVisibility('team-1', 'non-eligible', 'card-collector', true)).rejects.toThrow(
+      '仅大一至大三',
+    );
   });
 });

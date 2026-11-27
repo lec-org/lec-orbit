@@ -1,14 +1,14 @@
 import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
-/** Orbit 每次版本发版（Release）对应的 PR 贡献者快照表，供「贡献王」称号离线评估。 */
+/** Orbit 每次版本发版（Release）对应的 PR 贡献者快照表，按 (repo, tag_name) 复合主键隔离多仓库，供「贡献王」称号离线评估。 */
 @Entity({ name: 'orbit_release_contributors' })
-@Index('idx_orbit_release_contributors_published', ['publishedAt'])
+@Index('idx_orbit_release_contributors_repo_published', ['repo', 'publishedAt'])
 export class OrbitReleaseContributorEntity {
+  @PrimaryColumn({ name: 'repo', type: 'text', default: 'lec-org/lec-orbit' })
+  repo: string;
+
   @PrimaryColumn({ name: 'tag_name', type: 'text' })
   tagName: string;
-
-  @Column({ name: 'repo', type: 'text', default: 'lec-org/lec-orbit' })
-  repo: string;
 
   @Column({ name: 'published_at', type: 'timestamptz' })
   publishedAt: Date;
