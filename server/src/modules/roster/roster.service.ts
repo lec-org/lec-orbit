@@ -326,7 +326,7 @@ export class RosterService implements OnModuleInit {
           u.username ?? '',
           display,
           u.avatar ?? '',
-          isCaptainRole(roleNames),
+          isCaptainRole(roleNames, this.cfg.ssoOrgId),
           enrollYear,
           JSON.stringify(roleNames),
           JSON.stringify(social),

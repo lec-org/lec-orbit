@@ -12,6 +12,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { getOrbitEndpoints } from '../../src/shared/env';
+import { hasStudioRole } from '../../src/shared/studioRole';
 import type {
   AccountActionResult,
   AuthState,
@@ -240,10 +241,7 @@ export class AuthService {
     const roles = this.profile?.organizationRoles ?? [];
     const isStudioMember = orgs.includes(cfg.ssoOrganizationId);
     // Logto organization_roles 格式为 "<orgId>:<roleName>"，精确区分 captain 与 senior-captain
-    const isAdmin = roles.some((raw) => {
-      const roleName = (raw.includes(':') ? raw.split(':').pop() : raw)?.toLowerCase() ?? '';
-      return roleName === 'captain' || roleName === 'admin' || roleName === 'lec-captain';
-    });
+    const isAdmin = hasStudioRole(roles, cfg.ssoOrganizationId, ['captain', 'admin', 'lec-captain']);
     return {
       authenticated: hasToken,
       profile: this.profile,

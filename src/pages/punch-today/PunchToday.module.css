@@ -381,3 +381,17 @@
     grid-template-columns: 1fr;
   }
 }
+.dutyRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 14px;
+}
+
+.dutyDates {
+  margin-inline-start: auto;
+  font-size: 13px;
+  opacity: .72;
+  font-variant-numeric: tabular-nums;
+}

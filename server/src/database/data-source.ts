@@ -61,6 +61,8 @@ import { AddOrbitMemberProfileFields1764400000000 } from './migrations/176440000
 import { AddMiniAppEngagementTables1764500000000 } from './migrations/1764500000000-AddMiniAppEngagementTables.js';
 import { AddMiniAppPlayDaily1764600000000 } from './migrations/1764600000000-AddMiniAppPlayDaily.js';
 
+import { AddDutySchedule1764800000000 } from './migrations/1764800000000-AddDutySchedule.js';
+
 export const ALL_ENTITIES = [
   OrbitMemberEntity,
   AnnouncementEntity,
@@ -115,6 +117,7 @@ export const ALL_MIGRATIONS = [
   AddOrbitMemberProfileFields1764400000000,
   AddMiniAppEngagementTables1764500000000,
   AddMiniAppPlayDaily1764600000000,
+  AddDutySchedule1764800000000,
 ];
 
 export function buildTypeOrmOptions(cfg: AppConfig): DataSourceOptions {

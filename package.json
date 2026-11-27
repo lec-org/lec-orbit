@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "build": "electron-vite build",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
-    "test": "bun test test/",
+    "test": "bun test --isolate test/",
     "bundle:doc": "node scripts/bundle-lec-doc.mjs",
     "pack:dir": "bun run bundle:doc && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "package:mac": "bun run bundle:doc && bun run build && electron-builder --mac dmg zip --arm64 --x64 --publish never",

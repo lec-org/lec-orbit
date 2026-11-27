@@ -525,7 +525,7 @@ export function applyGameAction(
       const balance = context.actorCoinBalance ?? 0;
       if (balance < coinCost) {
         throw new Error(
-          `可用乐币不足：本次需付费 ${paidDraws} 抽（${COIN_COST_PER_DRAW} 分/抽，共需 ${coinCost} 分），当前仅剩 ${balance} 分`,
+            `可用乐币不足：本次需付费 ${paidDraws} 抽（${COIN_COST_PER_DRAW} 乐币/抽，共需 ${coinCost} 乐币），当前仅剩 ${balance} 乐币`,
         );
       }
     }
