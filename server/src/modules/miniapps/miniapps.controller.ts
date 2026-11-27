@@ -251,6 +251,12 @@ export class MiniAppsController {
     return this.service.resubmitVersion(user, appId.trim(), UuidSchema.parse(versionId.trim()));
   }
 
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  deleteGame(@CurrentUser() user: AuthUser, @Param('id') appId: string) {
+    return this.service.deleteGame(user, appId.trim());
+  }
+
   @Post(':id/status')
   @HttpCode(HttpStatus.OK)
   updateStatus(

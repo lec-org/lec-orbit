@@ -77,15 +77,20 @@ type WorkshopWork = { appId: string; name: string };
 type WorkshopAction = WorkshopWork & (
   | { type: 'withdraw' | 'resubmit'; versionId: string; version: string }
   | { type: 'suspend' }
+  | { type: 'delete' }
 );
 
 const workshopActionLabels = {
   withdraw: { title: '撤回送审', confirm: '确认撤回', success: '已撤回送审' },
   resubmit: { title: '重新送审', confirm: '确认送审', success: '已重新送审' },
   suspend: { title: '下架作品', confirm: '确认下架', success: '作品已下架' },
+  delete: { title: '删除游戏', confirm: '确认删除', success: '游戏已从工坊移除' },
 };
 
 function describeWorkshopAction(action: WorkshopAction): string {
+  if (action.type === 'delete') {
+    return `确认后，《${action.name}》将从工坊列表移除。历史版本和云存档会保留，你可以用同一个作品 ID 重新上传。`;
+  }
   if (action.type === 'suspend') {
     return `下架后，其他普通成员将无法从工坊打开《${action.name}》。待审更新会同时撤回，历史版本和存档会保留。`;
   }
@@ -716,6 +721,8 @@ export function HubPage(): JSX.Element {
         await orbitServerApi.withdrawMiniAppVersion(workshopAction.appId, workshopAction.versionId);
       } else if (workshopAction.type === 'resubmit') {
         await orbitServerApi.resubmitMiniAppVersion(workshopAction.appId, workshopAction.versionId);
+      } else if (workshopAction.type === 'delete') {
+        await orbitServerApi.deleteMiniAppGame(workshopAction.appId);
       } else {
         await orbitServerApi.updateMiniAppStatus(workshopAction.appId, { status: 'suspended' });
       }
@@ -1138,6 +1145,16 @@ export function HubPage(): JSX.Element {
                         onClick={() => openUploadDialog({ appId: card.appId, name: card.name })}
                       >
                         上传新版本
+                      </Button>
+                    )}
+                    {card.catalogItem?.canDeleteGame && (
+                      <Button
+                        variant="glass"
+                        size="small"
+                        destructive
+                        onClick={() => openWorkshopAction({ type: 'delete', appId: card.appId, name: card.name })}
+                      >
+                        删除游戏
                       </Button>
                     )}
                   </div>

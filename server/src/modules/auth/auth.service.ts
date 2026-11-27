@@ -16,11 +16,13 @@ interface CachedOpaqueEntry {
 }
 
 /** 判定组织角色列表中是否包含队长/管理员角色。 */
-export function isCaptainRole(roles: string[]): boolean {
+export function isCaptainRole(roles: string[], orgId: string, allowAdmin = true): boolean {
   for (const raw of roles) {
-    const idx = raw.lastIndexOf(':');
-    const part = (idx >= 0 ? raw.slice(idx + 1) : raw).trim().toLowerCase();
-    if (part === 'captain' || part === 'admin' || part === 'lec-captain') {
+    const value = raw.trim();
+    const idx = value.lastIndexOf(':');
+    if (idx >= 0 && value.slice(0, idx) !== orgId) continue;
+    const part = value.slice(idx + 1).trim().toLowerCase();
+    if (part === 'captain' || (allowAdmin && part === 'admin') || part === 'lec-captain') {
       return true;
     }
   }
@@ -76,7 +78,7 @@ export class AuthService {
       const roles = extractStringArray(payload.organization_roles);
       const scopeStr = typeof payload.scope === 'string' ? payload.scope : '';
       const isCaptain =
-        isCaptainRole(roles) || ` ${scopeStr} `.includes(' studio:admin:access ');
+        isCaptainRole(roles, this.cfg.ssoOrgId) || ` ${scopeStr} `.includes(' studio:admin:access ');
 
       const username = typeof payload.username === 'string' ? payload.username : '';
       const name = typeof payload.name === 'string' ? payload.name : '';
@@ -144,7 +146,7 @@ export class AuthService {
       organizations: orgs,
       roles,
       isStudio: orgs.includes(this.cfg.ssoOrgId),
-      isCaptain: isCaptainRole(roles),
+      isCaptain: isCaptainRole(roles, this.cfg.ssoOrgId),
     };
 
     if (this.opaqueCache.size > 2000) {

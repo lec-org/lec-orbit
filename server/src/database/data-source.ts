@@ -63,6 +63,7 @@ import { AddMiniAppFunctions1764300000000 } from './migrations/1764300000000-Add
 import { AddOrbitMemberProfileFields1764400000000 } from './migrations/1764400000000-AddOrbitMemberProfileFields.js';
 import { AddMiniAppEngagementTables1764500000000 } from './migrations/1764500000000-AddMiniAppEngagementTables.js';
 import { AddMiniAppPlayDaily1764600000000 } from './migrations/1764600000000-AddMiniAppPlayDaily.js';
+import { AddDutySchedule1764800000000 } from './migrations/1764800000000-AddDutySchedule.js';
 import { AddStudioCalendarAndFreeBusy1764900000000 } from './migrations/1764900000000-AddStudioCalendarAndFreeBusy.js';
 import { AddTitleUnlocksAndReleaseContributors1765000000000 } from './migrations/1765000000000-AddTitleUnlocksAndReleaseContributors.js';
 
@@ -123,6 +124,7 @@ export const ALL_MIGRATIONS = [
   AddOrbitMemberProfileFields1764400000000,
   AddMiniAppEngagementTables1764500000000,
   AddMiniAppPlayDaily1764600000000,
+  AddDutySchedule1764800000000,
   AddStudioCalendarAndFreeBusy1764900000000,
   AddTitleUnlocksAndReleaseContributors1765000000000,
 ];

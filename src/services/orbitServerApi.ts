@@ -2,6 +2,7 @@
 import axios, { AxiosError } from 'axios';
 import { getOrbitEndpoints } from '@shared/env';
 import type { MiniAppCatalogItem, MiniAppDetail, OrbitAppManifest } from '@shared/miniapp';
+import { dutyVersion, editableDutyVersion, OrbitHttpError, parseDutyResponse } from './dutySync';
 import { getOrbitClient } from './orbitClient';
 
 export interface OrbitAnnouncement {
@@ -309,13 +310,26 @@ client.interceptors.response.use(
   (err: unknown) => {
     if (err instanceof AxiosError) {
       const msg = (err.response?.data as { error?: string } | undefined)?.error;
-      return Promise.reject(new Error(msg || err.message || '请求 Orbit 服务失败'));
+      return Promise.reject(new OrbitHttpError(msg || err.message || '请求 Orbit 服务失败', err.response?.status));
     }
     return Promise.reject(err);
   },
 );
 
 export const orbitServerApi = {
+  async getDutySchedule() {
+    return parseDutyResponse((await client.get<unknown>('/api/v1/duty-schedule')).data);
+  },
+  async getEditableDutySchedule() {
+    const data = await this.getDutySchedule();
+    return { ...data, version: editableDutyVersion(data) };
+  },
+  async saveDutySchedule(groups: string[][], version: string | null): Promise<string | null> {
+    const res = await client.put<{ version: string }>('/api/v1/duty-schedule', { groups, version }, {
+      validateStatus: status => status === 409 || (status >= 200 && status < 300),
+    });
+    return res.status === 409 ? null : dutyVersion(res.data?.version);
+  },
   async listAnnouncements(): Promise<OrbitAnnouncement[]> {
     const { data } = await client.get<{ items: OrbitAnnouncement[] }>('/api/v1/announcements');
     return data.items ?? [];
@@ -506,6 +520,10 @@ export const orbitServerApi = {
     await client.post(
       `/api/v1/apps/${encodeURIComponent(appId)}/versions/${encodeURIComponent(versionId)}/resubmit`,
     );
+  },
+
+  async deleteMiniAppGame(appId: string): Promise<void> {
+    await client.delete(`/api/v1/apps/${encodeURIComponent(appId)}`);
   },
 
   async updateMiniAppStatus(

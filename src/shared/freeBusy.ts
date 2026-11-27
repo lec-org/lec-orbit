@@ -26,6 +26,36 @@ export function formatMinutesToHm(total: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/**
+ * 将跨天或单日日程按指定日期切片为当日忙闲时段（与服务端 sliceEventForDate 逻辑一致）：
+ * - 全天事件直接返回全天；
+ * - 跨天非全天事件按首日 [startTime, 23:59]、中间日全天、末日 [00:00, endTime] 拆分。
+ */
+export function sliceFreeBusyEventForDate(
+  ev: {
+    allDay: boolean;
+    startDate: string;
+    endDate: string;
+    startTime: string;
+    endTime: string;
+  },
+  dateStr: string,
+): { allDay: boolean; startTime: string; endTime: string } {
+  if (ev.allDay) {
+    return { allDay: true, startTime: '00:00', endTime: '23:59' };
+  }
+  if (ev.startDate === ev.endDate) {
+    return { allDay: false, startTime: ev.startTime, endTime: ev.endTime };
+  }
+  if (dateStr === ev.startDate) {
+    return { allDay: false, startTime: ev.startTime, endTime: '23:59' };
+  }
+  if (dateStr === ev.endDate) {
+    return { allDay: false, startTime: '00:00', endTime: ev.endTime };
+  }
+  return { allDay: true, startTime: '00:00', endTime: '23:59' };
+}
+
 /** 计算指定成员在选定时段 [startMin, endMin) 是否与任何非谢绝忙碌块冲突。 */
 export function hasConflictInRange(
   blocks: readonly FreeBusyTimeBlock[],

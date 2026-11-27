@@ -95,11 +95,6 @@ import styles from './Schedule.module.css';
 
 const SLOT_ROW_HEIGHT = 56;
 
-interface LocalScheduleDayBadge {
-  label: string;
-  tone?: 'holiday' | 'workday' | 'neutral';
-}
-
 interface RenderMeetingCard {
   course: ScheduleCourseWithMeetings;
   meeting: ScheduleMeeting;
@@ -461,28 +456,20 @@ export function SchedulePage(): JSX.Element {
     () => new Map(subscriptionItems.map((i) => [i.id, i])),
     [subscriptionItems],
   );
-  // 从已开启的订阅日历中提取法定休假日与调休补班日，并同步生成日/周/月表头「休 / 班」角标映射
-  const { holidayOffDateSet, holidayWorkDateSet, dayBadges } = useMemo(() => {
+  // 从已开启的订阅日历中提取法定休假日与调休补班日，供课程跳过与节次课表表头展示「休 / 班」角标
+  const { holidayOffDateSet, holidayWorkDateSet } = useMemo(() => {
     const offSet = new Set<string>(activeDetail?.schedule.holidays ?? []);
     const workSet = new Set<string>();
-    const badges: Record<string, LocalScheduleDayBadge> = {};
-    for (const d of activeDetail?.schedule.holidays ?? []) {
-      badges[d] = { label: '休', tone: 'holiday' };
-    }
     for (const item of subscriptionItems) {
       const sub = subscriptionById.get(item.subscriptionId);
       if (!sub || !sub.visible) continue;
       if (item.badge === 'off') {
         offSet.add(item.startDate);
-        badges[item.startDate] = { label: '休', tone: 'holiday' };
       } else if (item.badge === 'work') {
         workSet.add(item.startDate);
-        if (!offSet.has(item.startDate)) {
-          badges[item.startDate] = { label: '班', tone: 'workday' };
-        }
       }
     }
-    return { holidayOffDateSet: offSet, holidayWorkDateSet: workSet, dayBadges: badges };
+    return { holidayOffDateSet: offSet, holidayWorkDateSet: workSet };
   }, [activeDetail?.schedule.holidays, subscriptionItems, subscriptionById]);
 
   // 将「本地日程 + 任务 + 当前月份可视区课程 + 订阅日历（含默认法定节假日）+ 手动停课日」统一映射并按图层/搜索过滤
@@ -1513,7 +1500,6 @@ export function SchedulePage(): JSX.Element {
                     weekStartsOn={activeDetail?.schedule.weekStartDay === 7 ? 0 : 1}
                     showSidebar={false}
                     maxEventsPerDay={4}
-                    {...({ dayBadges } as Record<string, unknown>)}
                     onSlotClick={handleSlotClick}
                     renderEventPopover={renderEventPopover}
                   />

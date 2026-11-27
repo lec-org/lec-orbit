@@ -253,7 +253,33 @@ export function parseIcsEvents(
     const badge = extractBadge(vevent, summary);
 
     if (event.isRecurring() && !rec.isRecurrenceException) {
-      const iter = event.iterator();
+      // 对不含 COUNT 的多年历史 DAILY/WEEKLY 重复日程，按精确周期步长快进至 windowStart 附近，
+      // 既保留 INTERVAL 相位与星期几不变，又避免 5000 次迭代在历史年份提前耗尽。
+      let fastStart: ICAL.Time | undefined;
+      const rruleProps = vevent.getAllProperties('rrule');
+      if (rruleProps.length === 1 && event.startDate.toJSDate() < windowStart) {
+        const rruleVal = rruleProps[0]?.getFirstValue() as ICAL.Recur | null;
+        if (
+          rruleVal &&
+          typeof rruleVal === 'object' &&
+          !rruleVal.count &&
+          (rruleVal.freq === 'DAILY' || rruleVal.freq === 'WEEKLY')
+        ) {
+          const interval = Math.max(1, Number(rruleVal.interval) || 1);
+          const stepDays = rruleVal.freq === 'WEEKLY' ? interval * 7 : interval;
+          const diffDays = Math.floor(
+            (windowStart.getTime() - event.startDate.toJSDate().getTime()) / 86_400_000,
+          );
+          const steps = Math.floor(diffDays / stepDays) - 1;
+          if (steps > 0) {
+            const candidate = event.startDate.clone();
+            candidate.adjust(steps * stepDays, 0, 0, 0);
+            fastStart = candidate;
+          }
+        }
+      }
+
+      const iter = fastStart ? event.iterator(fastStart) : event.iterator();
       let next: ICAL.Time | null;
       let count = 0;
       let iterations = 0;
@@ -265,10 +291,11 @@ export function parseIcsEvents(
         (next = iter.next())
       ) {
         iterations += 1;
+        // 按原始重复序列时间判断是否超出展开窗口上限，避免单次 RECURRENCE-ID 推迟到窗口外导致提前 break 丢失后续实例
+        if (next.toJSDate() > windowEnd) break;
         const occ = event.getOccurrenceDetails(next);
         const jsStart = occ.startDate.toJSDate();
-        if (jsStart > windowEnd) break;
-        if (jsStart < windowStart) continue;
+        if (jsStart < windowStart || jsStart > windowEnd) continue;
 
         const occItem = occ.item ?? event;
         const occSummary = String(occItem.summary ?? summary).trim() || summary;

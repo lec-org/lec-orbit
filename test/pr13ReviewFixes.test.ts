@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { evaluateCalendarReminders, DEFAULT_STUDIO_CALENDAR_ID } from '../src/shared/calendar';
-import { findCommonFreeSlots } from '../src/shared/freeBusy';
+import { findCommonFreeSlots, sliceFreeBusyEventForDate } from '../src/shared/freeBusy';
 import { parseIcsEvents } from '../src/shared/icsParser';
 import { computeWeekFromStartDate, generateScheduleIcs, SWPU_CHENGDU_DEFAULT_SLOTS } from '../src/shared/schedule';
-import { isPrivateOrReservedIp } from '../electron/schedule/calendarSync';
+import { isPrivateOrReservedIp } from '../electron/schedule/ssrfGuard';
 import { LocalDB } from '../electron/storage/localDb';
 
 describe('PR #13 评审修复回归测试', () => {
@@ -163,19 +163,92 @@ describe('PR #13 评审修复回归测试', () => {
     expect(ics).toContain('END:VTIMEZONE');
   });
 
-  it('isPrivateOrReservedIp 准确拦截回环/私网/云元数据 IP 并放行公网 IP', () => {
+  it('parseIcsEvents 在单次 RECURRENCE-ID 改期至窗口外时不提前截断后续窗口内实例，并支持多年历史 DAILY 规则快进', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:rescheduled-far@test',
+      'DTSTART:20261102T100000',
+      'DTEND:20261102T110000',
+      'RRULE:FREQ=WEEKLY;COUNT=3',
+      'SUMMARY:每周站会',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:rescheduled-far@test',
+      'RECURRENCE-ID:20261109T100000',
+      'DTSTART:20320101T100000',
+      'DTEND:20320101T110000',
+      'SUMMARY:每周站会（延至窗口外）',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:old-daily@test',
+      'DTSTART:20100101T083000',
+      'DTEND:20100101T090000',
+      'RRULE:FREQ=DAILY',
+      'SUMMARY:长期晨会',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+
+    const res = parseIcsEvents(ics, { referenceDate: new Date(2026, 10, 1) });
+    const standups = res.entries.filter((e) => e.uid.startsWith('rescheduled-far@test#'));
+    expect(standups.map((e) => e.startDate)).toEqual(['2026-11-02', '2026-11-16']);
+
+    const dailies = res.entries.filter((e) => e.uid.startsWith('old-daily@test#'));
+    expect(dailies.length).toBeGreaterThan(0);
+    expect(dailies[0]!.startDate >= '2025-01-01').toBe(true);
+    expect(dailies[0]!.startTime).toBe('08:30');
+  });
+
+  it('sliceFreeBusyEventForDate 按首日/中间日/末日准确拆分跨天非全天日程', () => {
+    const ev = {
+      allDay: false,
+      startDate: '2026-11-27',
+      endDate: '2026-11-29',
+      startTime: '14:00',
+      endTime: '11:30',
+    };
+    expect(sliceFreeBusyEventForDate(ev, '2026-11-27')).toEqual({
+      allDay: false,
+      startTime: '14:00',
+      endTime: '23:59',
+    });
+    expect(sliceFreeBusyEventForDate(ev, '2026-11-28')).toEqual({
+      allDay: true,
+      startTime: '00:00',
+      endTime: '23:59',
+    });
+    expect(sliceFreeBusyEventForDate(ev, '2026-11-29')).toEqual({
+      allDay: false,
+      startTime: '00:00',
+      endTime: '11:30',
+    });
+  });
+
+  it('isPrivateOrReservedIp 准确拦截回环/私网/云元数据及 IPv6 变体绕过并放行公网 IP', () => {
     expect(isPrivateOrReservedIp('127.0.0.1')).toBe(true);
     expect(isPrivateOrReservedIp('10.1.2.3')).toBe(true);
     expect(isPrivateOrReservedIp('172.16.0.5')).toBe(true);
     expect(isPrivateOrReservedIp('192.168.1.10')).toBe(true);
     expect(isPrivateOrReservedIp('169.254.169.254')).toBe(true);
     expect(isPrivateOrReservedIp('::1')).toBe(true);
+    expect(isPrivateOrReservedIp('0:0:0:0:0:0:0:1')).toBe(true);
+    expect(isPrivateOrReservedIp('::127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('::7f00:1')).toBe(true);
     expect(isPrivateOrReservedIp('::ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('::ffff:0:127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('64:ff9b::127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedIp('2002:7f00:1::')).toBe(true);
+    expect(isPrivateOrReservedIp('fec0::1')).toBe(true);
+    expect(isPrivateOrReservedIp('fc00::1')).toBe(true);
+    expect(isPrivateOrReservedIp('fe80::1')).toBe(true);
     expect(isPrivateOrReservedIp('8.8.8.8')).toBe(false);
     expect(isPrivateOrReservedIp('1.1.1.1')).toBe(false);
+    expect(isPrivateOrReservedIp('2606:4700:4700::1111')).toBe(false);
   });
 
-  it('LocalDB 禁止删除内置 cal_studio、校验跨课表 courseId 并支持重复 meeting.id 去重', () => {
+  it('LocalDB 禁止删除内置 cal_studio、校验跨课表 courseId 并防止同课程与跨课程 meeting.id 冲突', () => {
     const db = new LocalDB('', ':memory:');
     const scope = 'campus:test_user';
     db.listCalendarCategories(scope);
@@ -194,6 +267,17 @@ describe('PR #13 评审修复回归测试', () => {
     });
     expect(saved.meetings.length).toBe(2);
     expect(saved.meetings[0]!.id).not.toBe(saved.meetings[1]!.id);
+
+    // 另一门课程传入已被高数占用的 meeting.id，应自动重生成且不覆盖高数原有排课
+    const saved2 = db.upsertCourseWithMeetings(scope, {
+      scheduleId: s1.id,
+      name: '线代',
+      meetings: [{ id: saved.meetings[0]!.id, dayOfWeek: 2, startSection: 3, endSection: 4, weeks: [1] }],
+    });
+    expect(saved2.meetings[0]!.id).not.toBe(saved.meetings[0]!.id);
+    const detail = db.getScheduleDetail(scope, s1.id);
+    const math = detail?.courses.find((c) => c.id === saved.id);
+    expect(math?.meetings.length).toBe(2);
 
     expect(() =>
       db.upsertCourseWithMeetings(scope, {

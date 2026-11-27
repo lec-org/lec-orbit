@@ -23,6 +23,7 @@ import {
   formatMinutesToHm,
   hasConflictInRange,
   parseHmToMinutes,
+  sliceFreeBusyEventForDate,
 } from '@shared/freeBusy';
 import type { StudioMemberCard } from '@shared/ipc';
 import {
@@ -374,14 +375,15 @@ export function MemberProfileDialog({ seed, onClose }: MemberProfileDialogProps)
           for (const ev of localEvents) {
             if (!eventCoversDate(ev, dateStr)) continue;
             const cat = catById.get(ev.calendarId);
+            const sliced = sliceFreeBusyEventForDate(ev, dateStr);
             blocks.push({
               id: `per:${ev.id}`,
               kind: 'personal',
               title: ev.title,
               location: ev.location || '',
-              allDay: ev.allDay || ev.endDate > ev.startDate,
-              startTime: ev.startTime,
-              endTime: ev.endTime,
+              allDay: sliced.allDay,
+              startTime: sliced.startTime,
+              endTime: sliced.endTime,
               color: cat?.color ?? '#2563EB',
               status: 'accepted',
               meta: cat?.name ?? '个人日程',
@@ -400,14 +402,15 @@ export function MemberProfileDialog({ seed, onClose }: MemberProfileDialogProps)
           if (!involved) continue;
           const resp =
             ev.attendeeResponses?.[uid] ?? (ev.creatorId === uid ? 'accepted' : 'tentative');
+          const sliced = sliceFreeBusyEventForDate(ev, dateStr);
           blocks.push({
             id: `std:${ev.id}`,
             kind: 'studio',
             title: ev.title,
             location: ev.location || '',
-            allDay: ev.allDay || ev.endDate > ev.startDate,
-            startTime: ev.startTime,
-            endTime: ev.endTime,
+            allDay: sliced.allDay,
+            startTime: sliced.startTime,
+            endTime: sliced.endTime,
             color: '#7C3AED',
             status: resp,
             meta: resp === 'tentative' ? '未回复' : '工作室',

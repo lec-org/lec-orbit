@@ -1333,35 +1333,43 @@ export class LocalDB {
       updatedAt: now,
     };
 
-    // 对入参中的 meeting.id 去重，避免重复 ID 触发主键 UNIQUE 约束异常
-    const seenMeetingIds = new Set<string>();
-    const meetings: ScheduleMeeting[] = input.meetings.map((m) => {
-      const sortedWeeks = [...new Set(m.weeks)].sort((a, b) => a - b);
-      let mtgId = m.id?.trim() || `mtg_${crypto.randomUUID().slice(0, 12)}`;
-      while (seenMeetingIds.has(mtgId)) {
-        mtgId = `mtg_${crypto.randomUUID().slice(0, 12)}`;
-      }
-      seenMeetingIds.add(mtgId);
-      return {
-        id: mtgId,
-        scheduleId: input.scheduleId,
-        courseId,
-        teacher: m.teacher ?? '',
-        location: m.location ?? '',
-        campus: m.campus ?? '',
-        dayOfWeek: m.dayOfWeek,
-        startSection: m.startSection,
-        endSection: m.endSection,
-        startTimeOverride: m.startTimeOverride,
-        endTimeOverride: m.endTimeOverride,
-        weeks: sortedWeeks,
-        weeksText: m.weeksText?.trim() || formatWeeksCompact(sortedWeeks),
-        isAdjusted: Boolean(m.isAdjusted),
-        source: m.source ?? 'manual',
-      };
-    });
+    const buildMeetings = (
+      isOwnedByOtherCourse: (id: string) => boolean,
+    ): ScheduleMeeting[] => {
+      // 对入参中的 meeting.id 去重，并避开同 scope 下已被其他课程占用的主键，防止 UNIQUE 约束异常或跨课程覆写
+      const seenMeetingIds = new Set<string>();
+      return input.meetings.map((m) => {
+        const sortedWeeks = [...new Set(m.weeks)].sort((a, b) => a - b);
+        let mtgId = m.id?.trim() || `mtg_${crypto.randomUUID().slice(0, 12)}`;
+        while (seenMeetingIds.has(mtgId) || isOwnedByOtherCourse(mtgId)) {
+          mtgId = `mtg_${crypto.randomUUID().slice(0, 12)}`;
+        }
+        seenMeetingIds.add(mtgId);
+        return {
+          id: mtgId,
+          scheduleId: input.scheduleId,
+          courseId,
+          teacher: m.teacher ?? '',
+          location: m.location ?? '',
+          campus: m.campus ?? '',
+          dayOfWeek: m.dayOfWeek,
+          startSection: m.startSection,
+          endSection: m.endSection,
+          startTimeOverride: m.startTimeOverride,
+          endTimeOverride: m.endTimeOverride,
+          weeks: sortedWeeks,
+          weeksText: m.weeksText?.trim() || formatWeeksCompact(sortedWeeks),
+          isAdjusted: Boolean(m.isAdjusted),
+          source: m.source ?? 'manual',
+        };
+      });
+    };
 
     if (!this.db) {
+      const meetings = buildMeetings((id) => {
+        const existing = this.memoryMeetings.get(`${scope}::${id}`);
+        return Boolean(existing && existing.courseId !== courseId);
+      });
       this.memoryCourses.set(`${scope}::${courseId}`, course);
       for (const [k, existing] of [...this.memoryMeetings.entries()]) {
         if (k.startsWith(`${scope}::`) && existing.courseId === courseId) {
@@ -1374,7 +1382,14 @@ export class LocalDB {
       return { ...course, meetings };
     }
 
-    this.withWriteTx(() => {
+    const meetings = this.withWriteTx(() => {
+      const checkMeetingOwner = this.db!.prepare(
+        'SELECT course_id FROM schedule_meetings WHERE scope = ? AND id = ?',
+      );
+      const resolvedMeetings = buildMeetings((id) => {
+        const row = checkMeetingOwner.get(scope, id);
+        return Boolean(row && String(row.course_id) !== courseId);
+      });
       this.db!
         .prepare(
           `INSERT INTO schedule_courses
@@ -1409,7 +1424,7 @@ export class LocalDB {
            weeks_json, weeks_text, is_adjusted, source)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
-      for (const mtg of meetings) {
+      for (const mtg of resolvedMeetings) {
         insertMeeting.run(
           scope,
           mtg.id,
@@ -1432,6 +1447,7 @@ export class LocalDB {
       this.db!
         .prepare('UPDATE schedules SET updated_at = ? WHERE scope = ? AND id = ?')
         .run(now, scope, input.scheduleId);
+      return resolvedMeetings;
     });
 
     return { ...course, meetings };

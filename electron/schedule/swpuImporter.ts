@@ -38,8 +38,8 @@ export class SwpuScheduleImporter {
   private autoFetchInFlight = false;
   private lastAutoFetchedOrigin = '';
   private configuredProxyMode: SwpuNetworkMode | null = null;
-  /** 防重入锁：并发点击 openLoginWindow 时复用同一个创建流程，避免创建孤儿窗口。 */
-  private openWindowPromise: Promise<SwpuImportWindowState> | null = null;
+  /** 递增打开代数：每次 openLoginWindow / close / resetForSignOut / destroy 均递增，防止登出后晚到弹窗及模式切换被旧加载阻塞。 */
+  private openGen = 0;
   /** 自动导航触发的延迟抓取定时器，支持在切学期/页面完成/关窗时及时取消。 */
   private autoFetchTimer: ReturnType<typeof setTimeout> | null = null;
   /** 递增抓取序号，丢弃晚到的旧学期/旧抓取结果防止竞态覆写。 */
@@ -138,28 +138,19 @@ export class SwpuScheduleImporter {
     networkMode?: SwpuNetworkMode;
     clearSession?: boolean;
   }): Promise<SwpuImportWindowState> {
-    if (this.openWindowPromise) {
-      return this.openWindowPromise;
-    }
-    const task = this.openLoginWindowInternal(options).finally(() => {
-      if (this.openWindowPromise === task) {
-        this.openWindowPromise = null;
-      }
-    });
-    this.openWindowPromise = task;
-    return task;
-  }
-
-  private async openLoginWindowInternal(options?: {
-    networkMode?: SwpuNetworkMode;
-    clearSession?: boolean;
-  }): Promise<SwpuImportWindowState> {
+    const gen = ++this.openGen;
     const networkMode: SwpuNetworkMode = options?.networkMode ?? this.state.networkMode ?? 'system';
     const entryUrl = networkMode === 'webvpn' ? SWPU_WEBVPN_LOGIN_URL : SWPU_SSO_LOGIN_URL;
     const sess = await this.configureSession(networkMode);
+    if (gen !== this.openGen) {
+      return this.state;
+    }
 
     if (options?.clearSession) {
       await sess.clearStorageData({ storages: ['cookies', 'localstorage', 'shadercache'] });
+      if (gen !== this.openGen) {
+        return this.state;
+      }
     }
 
     this.clearAutoFetchTimer();
@@ -168,8 +159,9 @@ export class SwpuScheduleImporter {
     this.fetchSeq += 1;
 
     if (this.win && !this.win.isDestroyed()) {
-      this.win.show();
-      this.win.focus();
+      const existingWin = this.win;
+      existingWin.show();
+      existingWin.focus();
       this.emit({
         open: true,
         stage: 'waiting_login',
@@ -178,7 +170,15 @@ export class SwpuScheduleImporter {
         error: null,
         message: '正在加载西柚统一身份认证，请稍候…',
       });
-      await this.win.loadURL(entryUrl).catch(() => undefined);
+      await existingWin.loadURL(entryUrl).catch((err) => {
+        if (gen !== this.openGen || existingWin.isDestroyed()) return;
+        console.warn('[orbit:swpu-import] reload entry error:', err);
+        this.emit({
+          stage: 'error',
+          error: err instanceof Error ? err.message : String(err),
+          message: '打开教务登录页失败，请检查网络连接或切换代理模式',
+        });
+      });
       return this.state;
     }
 
@@ -260,7 +260,7 @@ export class SwpuScheduleImporter {
     });
 
     wc.on('did-fail-load', (_evt, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (!isMainFrame || errorCode === -3) return;
+      if (!isMainFrame || errorCode === -3 || win.isDestroyed()) return;
       console.warn('[orbit:swpu-import] did-fail-load:', { errorCode, errorDescription, validatedURL });
       this.emit({
         stage: 'error',
@@ -272,7 +272,9 @@ export class SwpuScheduleImporter {
 
     win.on('closed', () => {
       this.clearAutoFetchTimer();
-      this.win = null;
+      if (this.win === win) {
+        this.win = null;
+      }
       this.autoFetchInFlight = false;
       this.fetchSeq += 1;
       this.emit({
@@ -296,13 +298,19 @@ export class SwpuScheduleImporter {
       .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(this.buildLoadingPlaceholderHtml(entryUrl))}`)
       .catch(() => undefined);
 
+    if (gen !== this.openGen || win.isDestroyed()) {
+      return this.state;
+    }
+
     const startedAt = Date.now();
     await win
       .loadURL(entryUrl)
       .then(() => {
+        if (gen !== this.openGen) return;
         console.info(`[orbit:swpu-import] loaded entry in ${Date.now() - startedAt}ms (mode=${networkMode})`);
       })
       .catch((err) => {
+        if (gen !== this.openGen || win.isDestroyed()) return;
         console.warn('[orbit:swpu-import] loadURL error:', err);
         this.emit({
           stage: 'error',
@@ -546,6 +554,7 @@ export class SwpuScheduleImporter {
   }
 
   close(): SwpuImportWindowState {
+    this.openGen += 1;
     this.clearAutoFetchTimer();
     this.fetchSeq += 1;
     if (this.win && !this.win.isDestroyed()) {
@@ -561,6 +570,7 @@ export class SwpuScheduleImporter {
 
   /** 登出或切换 Orbit 账号时调用：关闭窗口、清空内存课表预览并清理隔离教务会话，防止跨账号泄漏。 */
   async resetForSignOut(): Promise<void> {
+    this.openGen += 1;
     this.clearAutoFetchTimer();
     this.fetchSeq += 1;
     this.autoFetchInFlight = false;
@@ -580,6 +590,7 @@ export class SwpuScheduleImporter {
   }
 
   destroy(): void {
+    this.openGen += 1;
     this.clearAutoFetchTimer();
     this.fetchSeq += 1;
     if (this.win && !this.win.isDestroyed()) {

@@ -188,7 +188,7 @@ export function PunchCardsPage(): JSX.Element {
       notifyToast({
         tone: 'error',
         title: count === 10 ? '十连抽卡失败' : '单抽失败',
-        description: err instanceof Error ? err.message : '请检查积分或网络后重试。',
+        description: err instanceof Error ? err.message : '请检查余额或网络后重试。',
       });
     } finally {
       setBusyAction(null);
@@ -313,6 +313,7 @@ export function PunchCardsPage(): JSX.Element {
     (selectedCard?.targetMode !== undefined && selectedCard.targetMode !== 'none');
 
   const costPerDraw = game?.coinCostPerDraw ?? 6;
+  const currency = game?.points.rule === 'unified-coin-v2' ? '乐币' : '积分';
   const freePool = (game?.freeRemaining ?? 0) + (game?.giftDraws ?? 0);
   const singlePaidDraws = Math.max(0, 1 - freePool);
   const tenPaidDraws = Math.max(0, 10 - freePool);
@@ -354,12 +355,11 @@ export function PunchCardsPage(): JSX.Element {
             <div className={styles.heroStats}>
               <div className={styles.statBlock}>
                 <span className={styles.statLabel}>
-                  {game.points.rule === 'unified-coin-v2' ? '可用乐币' : '可用积分'}
+                  可用{currency}
                 </span>
                 <strong className={styles.statValue}>{game.points.balance}</strong>
                 <span className={styles.statHint}>
                   本周累计 {game.points.earned} · 已消费 {game.points.spent}
-                  {typeof game.coinCostPerDraw === 'number' ? ` · ${game.coinCostPerDraw} 乐币/抽` : ''}
                 </span>
               </div>
               <div className={styles.statBlock}>
@@ -369,9 +369,6 @@ export function PunchCardsPage(): JSX.Element {
                 </strong>
                 <span className={styles.statHint}>
                   免费 {game.freeRemaining} 次 · 赠礼 {game.giftDraws} 次
-                  {typeof game.weeklyPaidDrawsLimit === 'number'
-                    ? ` · 付费已用 ${game.weeklyPaidDrawsUsed ?? 0}/${game.weeklyPaidDrawsLimit}`
-                    : ''}
                 </span>
               </div>
               <div className={styles.statBlock}>
@@ -395,7 +392,7 @@ export function PunchCardsPage(): JSX.Element {
                   disabled={Boolean(busyAction)}
                   onClick={() => void handleDraw(1)}
                 >
-                  {singleCost === 0 ? '单抽一次（免费）' : `单抽一次（${singleCost} 分）`}
+                  {singleCost === 0 ? '单抽一次（免费）' : `单抽一次（${singleCost} ${currency}）`}
                 </Button>
                 <Button
                   variant="filled"
@@ -404,12 +401,12 @@ export function PunchCardsPage(): JSX.Element {
                   disabled={Boolean(busyAction)}
                   onClick={() => void handleDraw(10)}
                 >
-                  {tenCost === 0 ? '十连抽卡（免费）' : `十连抽卡（${tenCost} 分）`}
+                  {tenCost === 0 ? '十连抽卡（免费）' : `十连抽卡（${tenCost} ${currency}）`}
                 </Button>
               </div>
               <div className={styles.drawRuleHint}>
                 <span>
-                  抽卡定价：<strong>{costPerDraw} 积分 / 抽</strong>（优先消耗免费与赠礼次数）
+                  抽卡定价：<strong>{costPerDraw} {currency} / 抽</strong>（优先消耗免费与赠礼次数）
                 </span>
                 <span className={paidQuotaFull ? styles.drawQuotaFull : undefined}>
                   本周付费额度：{weeklyPaidUsed}/{weeklyPaidLimit} 抽
