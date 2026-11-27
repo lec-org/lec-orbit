@@ -103,6 +103,109 @@ export type TitleThemeKey =
   | 'teal'
   | 'slate';
 
+/** 方案 A 称号成就升阶进位基数：满 5 颗同级图标后再达成 1 次（第 6 进阶点）进位至下一阶。 */
+export const TITLE_TIER_BASE = 6;
+
+export interface TitleAchievementTier {
+  count: number;
+  points: number;
+  crowns: number;
+  suns: number;
+  moons: number;
+  stars: number;
+  nextMajorTierLabel: string | null;
+  nextMajorTierCount: number | null;
+}
+
+/**
+ * 方案 A 称号成就升阶计算（与服务端 punch-title-catalog.ts 保持完全一致）：
+ * - 第 1 次：基础解锁（0 进阶点）
+ * - 第 2–6 次：1–5 星
+ * - 第 7 次（五星之后再达成）：1 月亮
+ * - 第 37 次（五月亮之后再达成）：1 太阳
+ * - 第 217 次（五太阳之后再达成）：1 皇冠
+ */
+export function computeTitleAchievementTier(
+  count: number,
+  stackable = true,
+): TitleAchievementTier {
+  const safeCount = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0));
+  if (!stackable) {
+    return {
+      count: Math.min(1, safeCount),
+      points: 0,
+      crowns: 0,
+      suns: 0,
+      moons: 0,
+      stars: 0,
+      nextMajorTierLabel: null,
+      nextMajorTierCount: null,
+    };
+  }
+  if (safeCount <= 0) {
+    return {
+      count: 0,
+      points: 0,
+      crowns: 0,
+      suns: 0,
+      moons: 0,
+      stars: 0,
+      nextMajorTierLabel: '解锁成就',
+      nextMajorTierCount: 1,
+    };
+  }
+  const points = safeCount - 1;
+  const base = TITLE_TIER_BASE;
+  const sunUnit = base * base;
+  const crownUnit = sunUnit * base;
+  const stars = points % base;
+  const moons = Math.floor(points / base) % base;
+  const suns = Math.floor(points / sunUnit) % base;
+  const crowns = Math.floor(points / crownUnit);
+
+  let nextMajorTierLabel: string;
+  let nextMajorTierCount: number;
+  if (points < 1) {
+    nextMajorTierLabel = '1 星';
+    nextMajorTierCount = 2;
+  } else if (points < base) {
+    nextMajorTierLabel = '1 月亮';
+    nextMajorTierCount = base + 1;
+  } else if (points < sunUnit) {
+    nextMajorTierLabel = '1 太阳';
+    nextMajorTierCount = sunUnit + 1;
+  } else if (points < crownUnit) {
+    nextMajorTierLabel = '1 皇冠';
+    nextMajorTierCount = crownUnit + 1;
+  } else {
+    nextMajorTierLabel = `${crowns + 1} 皇冠`;
+    nextMajorTierCount = (crowns + 1) * crownUnit + 1;
+  }
+
+  return {
+    count: safeCount,
+    points,
+    crowns,
+    suns,
+    moons,
+    stars,
+    nextMajorTierLabel,
+    nextMajorTierCount,
+  };
+}
+
+/** 将成就阶位格式化为中文摘要（如「1 月亮 3 星」）。 */
+export function formatTitleTierText(tier: TitleAchievementTier): string {
+  if (tier.count <= 0) return '未解锁';
+  if (tier.points <= 0) return '基础解锁';
+  const parts: string[] = [];
+  if (tier.crowns > 0) parts.push(`${tier.crowns} 皇冠`);
+  if (tier.suns > 0) parts.push(`${tier.suns} 太阳`);
+  if (tier.moons > 0) parts.push(`${tier.moons} 月亮`);
+  if (tier.stars > 0) parts.push(`${tier.stars} 星`);
+  return parts.join(' ');
+}
+
 export interface MemberTitleBadge {
   id: string;
   name: string;
@@ -112,6 +215,9 @@ export interface MemberTitleBadge {
   forced: boolean;
   persistent?: boolean;
   hideable?: boolean;
+  stackable?: boolean;
+  /** 历史累计达成次数（>=2 时按方案 A 展示星/月/日/冠阶位）。 */
+  unlockCount?: number;
   icon: TitleIconKey;
   theme: TitleThemeKey;
 }
@@ -120,6 +226,7 @@ export interface TitleEvaluationItem extends MemberTitleBadge {
   unlocked: boolean;
   equipped: boolean;
   hidden?: boolean;
+  stackRuleText?: string;
   progressText?: string;
 }
 

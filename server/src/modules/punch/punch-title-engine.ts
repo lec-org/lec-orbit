@@ -113,12 +113,21 @@ export interface EvaluateTeamTitlesInput {
   currentWeekCardInteractions: TitleEngineCardInteraction[];
   /** 成员全历史「我赌你的枪里没有子弹」使用记录（用于「赌王」「求求你戒赌吧」）。 */
   gambleEventsByUser?: Map<string, TitleEngineGambleEvent[]>;
-  /** 全历史曾触发 SSR 大保底的成员 ID 集合（用于「自古枪兵幸运e」）。 */
+  /** 全历史曾触发 SSR 大保底的成员 ID 集合（兼容旧调用方）。 */
   ssrPityUsers?: Set<string>;
+  /** 成员全历史触发 SSR 大保底的去重回执键列表（用于按次累计「自古枪兵幸运e」升阶）。 */
+  ssrPityReceiptKeysByUser?: Map<string, string[]>;
   /** Orbit 历史 Release 的合并 PR 作者列表（用于「贡献王」）。 */
   releaseContributors?: TitleEngineReleaseContributor[];
   /** 当前卡牌目录总种类数（默认 21，用于「收集之王」）。 */
   totalCatalogCards?: number;
+  /** 数据库已持久化的成就幂等键集合：userId -> (titleId -> Set<occurrenceKey>)。 */
+  existingAchievementKeysByUser?: Map<string, Map<string, Set<string>>>;
+}
+
+export interface NewTitleAchievementRecord {
+  titleId: string;
+  occurrenceKey: string;
 }
 
 export interface MemberTitleEvaluation {
@@ -126,6 +135,8 @@ export interface MemberTitleEvaluation {
   hiddenTitleIds: string[];
   /** 本次评估中新解锁且尚未写入 persistentTitleIds 的长期称号 ID 列表。 */
   newlyUnlockedPersistentTitleIds: string[];
+  /** 本次评估中新发现且尚未写入 punch_title_achievements 的幂等成就达成记录。 */
+  newAchievementRecords: NewTitleAchievementRecord[];
   displayTitles: MemberTitleBadge[];
   catalog: TitleEvaluationItem[];
 }
@@ -372,32 +383,68 @@ function bestRecentConsecutiveStreak(
   return { qualified3, currentStreak };
 }
 
-/** 纯函数：判定某 GitHub 用户名是否在连续 requiredStreak 次版本更新中都提交了合并 PR。 */
+/**
+ * 纯函数：从满足条件的上海自然日集合中提取不重叠的连续 minLen 天轮次幂等键（streak:<段末日期>）。
+ * 例如连续 7 天（day1..day7）且 minLen=3 时，拆分为 [day1..day3] 与 [day4..day6] 两段，
+ * 返回 ['streak:day3', 'streak:day6']，保证每日增量扫描绝不重复计数。
+ */
+export function extractNonOverlappingStreakKeys(days: Set<string>, minLen = 3): string[] {
+  if (days.size < minLen || minLen <= 0) return [];
+  const sorted = [...days].sort();
+  const keys: string[] = [];
+  let runLen = 0;
+  let prevDay: string | null = null;
+  for (const day of sorted) {
+    if (prevDay && addShanghaiDays(prevDay, 1) === day) {
+      runLen += 1;
+    } else {
+      runLen = 1;
+    }
+    prevDay = day;
+    if (runLen === minLen) {
+      keys.push(`streak:${day}`);
+      // 达成一段完整轮次后归零，确保后续连续天数按独立非重叠段计算
+      runLen = 0;
+    }
+  }
+  return keys;
+}
+
+/** 纯函数：判定某 GitHub 用户名是否在连续 requiredStreak 次版本更新中都提交了合并 PR，并提取独立轮次幂等键。 */
 export function hasConsecutiveReleaseContributions(
   releases: ReadonlyArray<TitleEngineReleaseContributor>,
   githubUsername: string | null | undefined,
   requiredStreak = 3,
-): { unlocked: boolean; maxStreak: number; currentStreak: number } {
+): { unlocked: boolean; maxStreak: number; currentStreak: number; streakKeys: string[] } {
   const login = (githubUsername ?? '').trim().toLowerCase();
   if (!login || releases.length === 0) {
-    return { unlocked: false, maxStreak: 0, currentStreak: 0 };
+    return { unlocked: false, maxStreak: 0, currentStreak: 0, streakKeys: [] };
   }
   const sorted = [...releases].sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime());
   let maxStreak = 0;
   let currentStreak = 0;
+  let bucketStreak = 0;
+  const streakKeys: string[] = [];
   for (const rel of sorted) {
     const hit = rel.contributorLogins.some((item) => item.trim().toLowerCase() === login);
     if (hit) {
       currentStreak += 1;
+      bucketStreak += 1;
       if (currentStreak > maxStreak) maxStreak = currentStreak;
+      if (bucketStreak === requiredStreak) {
+        streakKeys.push(`release-streak:${rel.tagName}`);
+        bucketStreak = 0;
+      }
     } else {
       currentStreak = 0;
+      bucketStreak = 0;
     }
   }
   return {
     unlocked: maxStreak >= requiredStreak,
     maxStreak,
     currentStreak,
+    streakKeys,
   };
 }
 
@@ -739,9 +786,9 @@ function evaluateClassAttendanceWeek(
   };
 }
 
-/** 根据成员各称号解锁进度、请求佩戴 ID 及隐藏列表，纯函数投影展示亮牌与图鉴项。 */
+/** 根据成员各称号解锁进度、历史累计次数、请求佩戴 ID 及隐藏列表，纯函数投影展示亮牌与图鉴项。 */
 export function projectMemberTitleDisplay(
-  statusById: Record<string, { unlocked: boolean; progressText?: string }>,
+  statusById: Record<string, { unlocked: boolean; unlockCount?: number; progressText?: string }>,
   requestedEquip: string | null,
   hiddenTitleIds: ReadonlyArray<string>,
 ): {
@@ -753,6 +800,11 @@ export function projectMemberTitleDisplay(
   const hiddenSet = new Set(hiddenTitleIds);
   const isHidden = (defId: string, hideable?: boolean): boolean =>
     Boolean(hideable && hiddenSet.has(defId));
+  const resolveCount = (defId: string): number => {
+    const st = statusById[defId];
+    if (typeof st?.unlockCount === 'number') return st.unlockCount;
+    return st?.unlocked ? 1 : 0;
+  };
 
   const unlockedNonForced = TITLE_CATALOG.filter(
     (def) => !def.forced && statusById[def.id]?.unlocked && !isHidden(def.id, def.hideable),
@@ -768,21 +820,22 @@ export function projectMemberTitleDisplay(
   ).sort((a, b) => b.priority - a.priority);
 
   const displayTitles: MemberTitleBadge[] = [
-    ...(activePrimary ? [toMemberTitleBadge(activePrimary)] : []),
-    ...activeForced.map(toMemberTitleBadge),
+    ...(activePrimary ? [toMemberTitleBadge(activePrimary, resolveCount(activePrimary.id))] : []),
+    ...activeForced.map((def) => toMemberTitleBadge(def, resolveCount(def.id))),
   ];
 
   const catalog: TitleEvaluationItem[] = TITLE_CATALOG.map((def) => {
     const st = statusById[def.id] ?? { unlocked: false };
     const hidden = isHidden(def.id, def.hideable);
     return {
-      ...toMemberTitleBadge(def),
+      ...toMemberTitleBadge(def, resolveCount(def.id)),
       unlocked: st.unlocked,
       equipped: Boolean(
         !hidden &&
           ((activePrimary && activePrimary.id === def.id) || (def.forced && st.unlocked)),
       ),
       ...(def.hideable ? { hidden } : {}),
+      stackRuleText: def.stackRuleText,
       progressText: st.progressText,
     };
   });
@@ -1112,7 +1165,7 @@ export function evaluateTeamTitles(
       prev1Total > goalSeconds - ONE_HOUR_SECONDS &&
       prev1Total < goalSeconds;
 
-    // 15 & 16. 赌王（5 连胜长期保留）/ 求求你戒赌吧（5 连败永久强制展示，下次赌赢即解除）
+    // 15 & 16. 赌王（每独立 5 连胜 +1，长期保留）/ 求求你戒赌吧（每独立 5 连败 +1，永久强制展示直至下次赌赢解除）
     const gambleEvents = [...(input.gambleEventsByUser?.get(member.id) ?? [])].sort(
       (a, b) => a.atMs - b.atMs,
     );
@@ -1120,15 +1173,31 @@ export function evaluateTeamTitles(
     let maxLoseStreak = 0;
     let curWinStreak = 0;
     let curLoseStreak = 0;
+    let winBucket = 0;
+    let loseBucket = 0;
+    const gambleWinStreakKeys: string[] = [];
+    const gambleLoseStreakKeys: string[] = [];
     for (const ge of gambleEvents) {
       if (ge.won) {
         curWinStreak += 1;
+        winBucket += 1;
         curLoseStreak = 0;
+        loseBucket = 0;
         if (curWinStreak > maxWinStreak) maxWinStreak = curWinStreak;
+        if (winBucket === 5) {
+          gambleWinStreakKeys.push(`win-streak:${ge.atMs}`);
+          winBucket = 0;
+        }
       } else {
         curLoseStreak += 1;
+        loseBucket += 1;
         curWinStreak = 0;
+        winBucket = 0;
         if (curLoseStreak > maxLoseStreak) maxLoseStreak = curLoseStreak;
+        if (loseBucket === 5) {
+          gambleLoseStreakKeys.push(`lose-streak:${ge.atMs}`);
+          loseBucket = 0;
+        }
       }
     }
     const gambleKingUnlocked = maxWinStreak >= 5 || persistentSet.has('gamble-king');
@@ -1148,9 +1217,12 @@ export function evaluateTeamTitles(
     );
     const contributorKingUnlocked = contribRes.unlocked || persistentSet.has('contributor-king');
 
-    // 20. 自古枪兵幸运e（抽 SSR 触发大保底，长期保留）
+    // 20. 自古枪兵幸运e（抽 SSR 触发大保底，长期保留，每次触发按 receiptKey 累计升阶）
+    const ssrPityReceiptKeys = input.ssrPityReceiptKeysByUser?.get(member.id) ?? [];
     const lancerLuckEUnlocked =
-      (input.ssrPityUsers?.has(member.id) ?? false) || persistentSet.has('lancer-luck-e');
+      ssrPityReceiptKeys.length > 0 ||
+      (input.ssrPityUsers?.has(member.id) ?? false) ||
+      persistentSet.has('lancer-luck-e');
 
     // 21 & 22. 收集者 / 收集之王（图鉴去重种类数，长期保留）
     const discoveredCount = member.discoveredCardCount ?? 0;
@@ -1405,12 +1477,111 @@ export function evaluateTeamTitles(
       },
     };
 
+    const curMonthKey = `${nowParts.year}-${pad2(nowParts.month)}`;
+    const prevMonthKey = `${prevYear}-${pad2(prevMonth)}`;
+
+    // 为全部 26 项称号提取本次评估窗口内命中的幂等达成键（用于方案 A 6 进制升阶计数）
+    const detectedKeysByTitleId: Record<string, string[]> = {
+      'punch-god': [
+        ...(curWeekRecorded > FIFTY_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),
+        ...(prev1Recorded > FIFTY_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : []),
+      ],
+      'punch-star': extractNonOverlappingStreakKeys(topGradeDays, 3),
+      'mcgrady-time': [
+        ...(curWeekRecorded >= THIRTY_FIVE_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),
+        ...(prev1Recorded >= THIRTY_FIVE_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : []),
+      ],
+      'contributor-king': contribRes.streakKeys,
+      'monthly-perfect': [
+        ...(curMonthDaysOver1h >= curMonthDaysCount ? [`month:${curMonthKey}`] : []),
+        ...(prevMonthDaysOver1h >= prevMonthDaysCount ? [`month:${prevMonthKey}`] : []),
+      ],
+      'collection-king': collectionKingUnlocked ? ['once'] : [],
+      'general-jin': [
+        ...(curWeekDaysOver5h >= 7 ? [`week:${currentWeekKey}`] : []),
+        ...(prevWeekDaysOver5h >= 7 ? [`week:${prevWeek1Key}`] : []),
+      ],
+      'legend-allnighter': extractNonOverlappingStreakKeys(allNighterDays, 3),
+      'gamble-king': gambleWinStreakKeys,
+      'most-honest': [
+        ...(curClassEval.honestQualified ? [`week:${currentWeekKey}`] : []),
+        ...(prevClassEval.honestQualified ? [`week:${prevWeek1Key}`] : []),
+      ],
+      'weekly-perfect': [
+        ...(curWeekDaysOver1h >= 7 ? [`week:${currentWeekKey}`] : []),
+        ...(prevWeekDaysOver1h >= 7 ? [`week:${prevWeek1Key}`] : []),
+      ],
+      'good-student': goodStudentUnlocked ? [`week:${prevWeek1Key}`] : [],
+      'dragon-king': dragonKingUnlocked ? [`week:${currentWeekKey}`] : [],
+      'deadline-master': deadlineMasterUnlocked ? [`week:${prevWeek1Key}`] : [],
+      'lu-dongbin': luDongbinUnlocked ? [`week:${currentWeekKey}`] : [],
+      'almost-perfect': almostPerfectUnlocked ? [`week:${prevWeek1Key}`] : [],
+      'lancer-luck-e':
+        ssrPityReceiptKeys.length > 0
+          ? ssrPityReceiptKeys.map((rk) => `ssr-pity:${rk}`)
+          : input.ssrPityUsers?.has(member.id)
+            ? ['ssr-pity:legacy']
+            : [],
+      'early-bird': extractNonOverlappingStreakKeys(metrics.earlyBirdDays, 3),
+      'night-owl': extractNonOverlappingStreakKeys(metrics.nightOwlDays, 3),
+      'card-collector': cardCollectorUnlocked ? ['once'] : [],
+      uneasy: [
+        ...(curRankGapSec > FIVE_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),
+        ...(prevRankGapSec > FIVE_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : []),
+      ],
+      'quit-gambling': gambleLoseStreakKeys,
+      lovesick: lovesickActive ? [`week:${currentWeekKey}`] : [],
+      'almost-gone': almostGoneActive ? [`week:${prevWeek1Key}`] : [],
+      'low-stamina': lowStaminaActive ? [`week:${prevWeek1Key}`] : [],
+      'purple-egg': purpleEggActive ? [`week:${prevWeek1Key}`] : [],
+    };
+
+    const memberExistingByTitle = input.existingAchievementKeysByUser?.get(member.id);
+    const newAchievementRecords: NewTitleAchievementRecord[] = [];
+    const statusWithCounts: Record<
+      string,
+      { unlocked: boolean; unlockCount: number; progressText?: string }
+    > = {};
+
+    for (const def of TITLE_CATALOG) {
+      const base = statusById[def.id] ?? { unlocked: false };
+      const existingKeys = memberExistingByTitle?.get(def.id) ?? new Set<string>();
+      const detectedKeys = detectedKeysByTitleId[def.id] ?? [];
+
+      if (!def.stackable) {
+        const hasEver = existingKeys.size > 0 || detectedKeys.length > 0 || base.unlocked || persistentSet.has(def.id);
+        if (hasEver && existingKeys.size === 0) {
+          newAchievementRecords.push({ titleId: def.id, occurrenceKey: 'once' });
+        }
+        statusWithCounts[def.id] = {
+          unlocked: base.unlocked,
+          unlockCount: hasEver ? 1 : 0,
+          progressText: base.progressText,
+        };
+      } else {
+        const merged = new Set<string>(existingKeys);
+        for (const key of detectedKeys) {
+          if (!merged.has(key)) {
+            merged.add(key);
+            newAchievementRecords.push({ titleId: def.id, occurrenceKey: key });
+          }
+        }
+        // 兼容历史已写入 persistentTitleIds 或当前生效但尚未回溯出细粒度 key 的旧记录
+        const minCount = base.unlocked || persistentSet.has(def.id) ? 1 : 0;
+        statusWithCounts[def.id] = {
+          unlocked: base.unlocked,
+          unlockCount: Math.max(merged.size, minCount),
+          progressText: base.progressText,
+        };
+      }
+    }
+
     const newlyUnlockedPersistentTitleIds = TITLE_CATALOG.filter(
       (def) => def.persistent && statusById[def.id]?.unlocked && !persistentSet.has(def.id),
     ).map((def) => def.id);
 
     const projected = projectMemberTitleDisplay(
-      statusById,
+      statusWithCounts,
       member.equippedTitleId ?? null,
       [...hiddenSet],
     );
@@ -1418,6 +1589,7 @@ export function evaluateTeamTitles(
     results.set(member.id, {
       ...projected,
       newlyUnlockedPersistentTitleIds,
+      newAchievementRecords,
     });
   }
 

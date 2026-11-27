@@ -4,11 +4,16 @@ import {
   GitHubContributorSyncService,
   attributeMergedPrsToReleases,
 } from '../src/modules/punch/github-contributor-sync.service.js';
-import { TITLE_CATALOG } from '../src/modules/punch/punch-title-catalog.js';
+import {
+  TITLE_CATALOG,
+  computeTitleAchievementTier,
+  formatTitleTierText,
+} from '../src/modules/punch/punch-title-catalog.js';
 import {
   evaluateTeamTitles,
   extractCardInteractionsFromReceipt,
   extractGambleEventFromReceipt,
+  extractNonOverlappingStreakKeys,
   hasSsrPityInReceipt,
   shanghaiDayStartMs,
   type TitleEngineSession,
@@ -730,6 +735,15 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
       },
     };
 
+    const achievementInserts: Array<{ sql: string; params: unknown[] }> = [];
+    const mockAchievementRepo = {
+      find: async () => [],
+      query: async (sql: string, params: unknown[]) => {
+        achievementInserts.push({ sql, params });
+        return [];
+      },
+    };
+
     const svc = new PunchTitlesService(
       mockUserRepo as never,
       { find: async () => [] } as never,
@@ -744,12 +758,13 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
       mockCardActionRepo as never,
       { find: async () => [] } as never,
       { find: async () => [] } as never,
+      mockAchievementRepo as never,
       { getMemberKey: (id: string) => id } as never,
       { getWeeklyTradeMinutesSummary: async () => ({ items: [], affectsAssessment: false }) } as never,
       { listReleaseContributors: async () => [] } as never,
     );
 
-    // 1. 并发两次读触发 single-flight：仅执行 1 次团队查询，且通过原子 SQL（非 userRepo.save）持久化新解锁长期称号
+    // 1. 并发两次读触发 single-flight：仅执行 1 次团队查询，且通过原子 SQL（非 userRepo.save）持久化新解锁长期称号与成就记录
     await Promise.all([
       svc.getTeamDisplayTitlesByUserId('team-1'),
       svc.getTeamDisplayTitlesByUserId('team-1'),
@@ -759,6 +774,13 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
     expect(cardArchiveFindCalls).toBe(0);
     expect(archiveQueries.length).toBe(3);
     expect(userQueries.some((q) => q.sql.includes('SET persistent_title_ids'))).toBe(true);
+    expect(
+      achievementInserts.some(
+        (q) =>
+          q.sql.includes('INSERT INTO punch_title_achievements') &&
+          q.sql.includes('ON CONFLICT (team_id, user_id, title_id, occurrence_key) DO NOTHING'),
+      ),
+    ).toBe(true);
 
     // 2. equipTitle 仅做 1 次团队快照重算，不调用 userRepo.save
     userFindCalls = 0;
@@ -840,5 +862,129 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
 
     expect(unlocked('u_zero', 'almost-gone')).toBe(true);
     expect(unlocked('u_zero', 'low-stamina')).toBe(false);
+  });
+
+  test('成就升阶体系（方案 A 6 进制：星→月→日→冠）与全量幂等累计去重', () => {
+    // 1. 校验 6 进制升阶进位：1=解锁、2=1星、6=5星、7=1月亮、37=1太阳、217=1皇冠
+    expect(formatTitleTierText(computeTitleAchievementTier(1))).toBe('基础解锁');
+    expect(formatTitleTierText(computeTitleAchievementTier(2))).toBe('1 星');
+    expect(formatTitleTierText(computeTitleAchievementTier(6))).toBe('5 星');
+    expect(formatTitleTierText(computeTitleAchievementTier(7))).toBe('1 月亮');
+    expect(formatTitleTierText(computeTitleAchievementTier(37))).toBe('1 太阳');
+    expect(formatTitleTierText(computeTitleAchievementTier(217))).toBe('1 皇冠');
+    expect(computeTitleAchievementTier(5, false).points).toBe(0);
+
+    // 2. 校验连续 3 天不重叠段切分：3/4/5 天均只计 1 段，6/7 天计 2 段
+    expect(
+      extractNonOverlappingStreakKeys(new Set(['2026-09-01', '2026-09-02']), 3),
+    ).toEqual([]);
+    expect(
+      extractNonOverlappingStreakKeys(
+        new Set(['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05']),
+        3,
+      ),
+    ).toEqual(['streak:2026-09-03']);
+    expect(
+      extractNonOverlappingStreakKeys(
+        new Set([
+          '2026-09-01',
+          '2026-09-02',
+          '2026-09-03',
+          '2026-09-04',
+          '2026-09-05',
+          '2026-09-06',
+          '2026-09-07',
+        ]),
+        3,
+      ),
+    ).toEqual(['streak:2026-09-03', 'streak:2026-09-06']);
+
+    // 3. 校验「求求你戒赌吧」两轮 5 连败（中间夹 1 赢）累计 2 次 = 1 星，且历史紫蛋周次叠加不重复
+    const baseMs = shanghaiDayStartMs('2026-09-01', 10, 0);
+    const twoRoundLosses = [
+      // 第 1 轮 5 连败
+      ...[0, 1, 2, 3, 4].map((i) => ({ atMs: baseMs + i * 60_000, won: false })),
+      // 赌赢 1 次（解除亮牌）
+      { atMs: baseMs + 10 * 60_000, won: true },
+      // 第 2 轮 5 连败（再次强制亮牌，累计 2 次 -> 1 星）
+      ...[11, 12, 13, 14, 15].map((i) => ({ atMs: baseMs + i * 60_000, won: false })),
+    ];
+
+    const existingKeys = new Map<string, Map<string, Set<string>>>([
+      [
+        'u_tier',
+        new Map<string, Set<string>>([
+          // 历史上已挂过 5 周紫蛋（加上本次上周未达标 week:2026-09-07 共 6 次 -> 5 星）
+          [
+            'purple-egg',
+            new Set([
+              'week:2026-07-06',
+              'week:2026-07-13',
+              'week:2026-07-20',
+              'week:2026-07-27',
+              'week:2026-08-03',
+            ]),
+          ],
+          // 历史上已有 1 条相同周次键（验证幂等不重复）
+          ['almost-gone', new Set([`week:${prevWeekKey}`])],
+        ]),
+      ],
+    ]);
+
+    const res = evaluateTeamTitles({
+      now,
+      members: [
+        {
+          id: 'u_tier',
+          enrollYear: 2025,
+          createdAt: oldCreatedAt,
+          discoveredCardCount: 21,
+        },
+      ],
+      sessions: [],
+      manualAdjustmentsByUserWeek: new Map(),
+      entertainmentByUserWeek: new Map(),
+      currentWeekCardInteractions: [],
+      gambleEventsByUser: new Map([['u_tier', twoRoundLosses]]),
+      ssrPityReceiptKeysByUser: new Map([['u_tier', ['rk1', 'rk2', 'rk3']]]),
+      existingAchievementKeysByUser: existingKeys,
+    });
+
+    const evalRes = res.get('u_tier')!;
+    const itemOf = (id: string) => evalRes.catalog.find((c) => c.id === id)!;
+
+    // 求求你戒赌吧：2 轮 5 连败 -> 累计 2 次（1 星）且亮牌自带 unlockCount=2
+    expect(itemOf('quit-gambling').unlocked).toBe(true);
+    expect(itemOf('quit-gambling').unlockCount).toBe(2);
+    expect(
+      evalRes.displayTitles.find((t) => t.id === 'quit-gambling')?.unlockCount,
+    ).toBe(2);
+
+    // 想吃紫蛋了：5 条历史 + 1 条本周结算 = 6 次（5 星）
+    expect(itemOf('purple-egg').unlockCount).toBe(6);
+    expect(
+      evalRes.newAchievementRecords.some(
+        (r) => r.titleId === 'purple-egg' && r.occurrenceKey === `week:${prevWeekKey}`,
+      ),
+    ).toBe(true);
+
+    // 快思了：已存在 week:2026-09-07 -> 幂等不重复写入，仍为 1 次
+    expect(itemOf('almost-gone').unlockCount).toBe(1);
+    expect(
+      evalRes.newAchievementRecords.some((r) => r.titleId === 'almost-gone'),
+    ).toBe(false);
+
+    // 自古枪兵幸运e：3 次独立大保底回执 -> 累计 3 次（2 星）
+    expect(itemOf('lancer-luck-e').unlockCount).toBe(3);
+
+    // 收集者 / 收集之王：一次性里程碑 stackable=false，固定为 1 次
+    expect(itemOf('card-collector').stackable).toBe(false);
+    expect(itemOf('card-collector').unlockCount).toBe(1);
+    expect(itemOf('collection-king').stackable).toBe(false);
+    expect(itemOf('collection-king').unlockCount).toBe(1);
+
+    // 全目录 26 项中恰有 24 项可升阶、2 项一次性
+    expect(TITLE_CATALOG.filter((t) => t.stackable).length).toBe(24);
+    expect(TITLE_CATALOG.filter((t) => !t.stackable).length).toBe(2);
   });
 });
