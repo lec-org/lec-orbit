@@ -195,6 +195,7 @@ let lastOrbitSyncAt = 0;
 let lastCardSyncAt = 0;
 let consecutiveEnvMisses = 0;
 let lastEnvLeaveNotifiedAt = 0;
+let envLeaveNotifiedCount = 0;
 let heartbeatInFlight = false;
 let blogsRequestId = 0;
 let blogConfigInFlight: Promise<BlogPublicConfig | null> | null = null;
@@ -377,6 +378,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       blogsRequestId++;
       consecutiveEnvMisses = 0;
       lastEnvLeaveNotifiedAt = 0;
+      envLeaveNotifiedCount = 0;
       void getOrbitClient().blog.deactivate();
       set({
         memberBlogs: [],
@@ -767,12 +769,23 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       const updated = isCheckedIn ? await punchApi.checkOut() : await punchApi.checkIn();
       consecutiveEnvMisses = 0;
       lastEnvLeaveNotifiedAt = 0;
+      envLeaveNotifiedCount = 0;
       set({ attendance: updated });
       void getOrbitClient().storage.setCache('punch:attendance', updated);
       void get().refreshPunchData();
+      const remoteMeta = updated as AttendanceSnapshot & {
+        remoteCheckOut?: boolean;
+        checkOutNotice?: string;
+      };
+      const remoteNotice =
+        isCheckedIn && remoteMeta.remoteCheckOut
+          ? remoteMeta.checkOutNotice || '已远程签退，本次专注时长已按最后一次在工作室内的时间结算。'
+          : null;
       return {
         ok: true,
-        message: isCheckedIn ? '已签退，本次专注时长已记录。' : '签到成功，开始今日专注！',
+        message: isCheckedIn
+          ? (remoteNotice ?? '已签退，本次专注时长已记录。')
+          : '签到成功，开始今日专注！',
       };
     } catch (err) {
       if (err instanceof PunchApiError && err.status === 403) {
@@ -874,22 +887,39 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       if (res.environment?.wifiFingerprintEnabled) {
         if (res.environment.allowed) {
           consecutiveEnvMisses = 0;
+          envLeaveNotifiedCount = 0;
         } else {
           consecutiveEnvMisses += 1;
           const now = Date.now();
-          // 连续 2 次心跳（约 6 分钟）均未命中工作室环境时提醒签退，避免单次 Wi-Fi 波动误报，且至少间隔 15 分钟提醒一次
-          if (consecutiveEnvMisses >= 2 && now - lastEnvLeaveNotifiedAt >= 15 * 60_000) {
+          // 连续 2 次心跳（约 6 分钟）均未命中工作室环境时温和提醒，每次间隔 30 分钟且同一次离场最多提醒 2 次，
+          // 避免循环骚扰，并在 Toast 中提供一键「立即远程签退」动作。
+          if (
+            consecutiveEnvMisses >= 2 &&
+            envLeaveNotifiedCount < 2 &&
+            now - lastEnvLeaveNotifiedAt >= 30 * 60_000
+          ) {
             lastEnvLeaveNotifiedAt = now;
-            const title = '未检测到工作室环境';
+            envLeaveNotifiedCount += 1;
+            const title = '检测到已离开工作室环境';
             const body =
-              res.environment.scanError ||
-              res.environment.reason ||
-              '连续多次未检测到工作室周边 Wi-Fi 信号，若已离开工作室请记得及时签退。';
+              '若已离开工作室可点击「立即签退」（将按最后一次确认在工作室内的时间结算，无需返回打卡区）。';
             void getOrbitClient().system.notify(title, body);
             notifyToast({
               tone: 'info',
               title,
               description: body,
+              action: {
+                label: '立即签退',
+                onClick: () => {
+                  void get().toggleCheckInOut().then((result) => {
+                    notifyToast({
+                      tone: result.ok ? 'success' : 'error',
+                      title: result.ok ? '签退成功' : '签退失败',
+                      description: result.message,
+                    });
+                  });
+                },
+              },
             });
           }
         }

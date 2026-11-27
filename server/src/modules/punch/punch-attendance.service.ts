@@ -208,17 +208,30 @@ export class PunchAttendanceService {
       });
     }
 
-    await this.networkPolicy.assertAllowed(user.teamId, clientIp, wifiScan);
-
     const now = new Date();
     if (await this.invalidateIfOvertime(session, now, clientIp)) {
       return session;
     }
 
-    const durationSeconds = this.getElapsedSeconds(session, now);
+    // 签退不再因离开工作室环境而 403 拒绝（避免卡死无法退卡与心跳循环骚扰）：
+    // - 在工作室内：按当前时间正常结算；
+    // - 已离开工作室：允许立即远程签退，但将结算截止时间截断至最后一次确认在工作室内时间（lastCreditedAt），防止离场继续挂机刷时长。
+    const environment = await this.networkPolicy.evaluateAccess(user.teamId, clientIp, wifiScan);
+    const remoteCheckOut = !environment.isAllowed;
+    const rawCredited = session.lastCreditedAt ?? session.checkInAt;
+    const effectiveEnd = remoteCheckOut
+      ? new Date(
+          Math.max(
+            session.checkInAt.getTime(),
+            Math.min(now.getTime(), rawCredited.getTime()),
+          ),
+        )
+      : now;
+
+    const durationSeconds = this.getElapsedSeconds(session, effectiveEnd);
     session.status = 'completed';
     session.durationSeconds = durationSeconds;
-    session.checkOutAt = now;
+    session.checkOutAt = effectiveEnd;
     session.sourceIpAtCheckOut = clientIp;
     session.updatedAt = now;
     await this.sessionRepo.save(session);
@@ -231,7 +244,7 @@ export class PunchAttendanceService {
       weekKey: session.weekKey,
       durationSeconds,
       isValid: true,
-      window: { start: session.checkInAt, end: now },
+      window: { start: session.checkInAt, end: effectiveEnd },
     });
 
     this.titlesService.invalidateTeamCache(session.teamId);
@@ -240,6 +253,11 @@ export class PunchAttendanceService {
       ...session,
       earnedCoins: reward.mintedCoins,
       isFeverBonus: reward.isFever,
+      remoteCheckOut,
+      settledAt: effectiveEnd.toISOString(),
+      checkOutNotice: remoteCheckOut
+        ? '已远程签退，本次专注时长已按最后一次确认在工作室内的时间结算。'
+        : undefined,
     };
   }
 
@@ -261,14 +279,18 @@ export class PunchAttendanceService {
       });
     }
 
-    session.lastKeepaliveAt = now;
-    session.updatedAt = now;
-    await this.sessionRepo.save(session);
-
     const environment =
       clientIp !== undefined
         ? await this.networkPolicy.evaluateAccess(user.teamId, clientIp, wifiScan)
         : undefined;
+
+    session.lastKeepaliveAt = now;
+    // 仅在确认仍处于工作室环境内时推进 lastCreditedAt，供离场后远程签退时精准截断有效时长
+    if (!environment || environment.isAllowed) {
+      session.lastCreditedAt = now;
+    }
+    session.updatedAt = now;
+    await this.sessionRepo.save(session);
 
     return {
       ...session,
