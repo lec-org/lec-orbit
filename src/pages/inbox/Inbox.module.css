@@ -239,6 +239,15 @@
   padding: 6px 16px;
 }
 
+/* 长消息流专用轻量容器（零 useRefraction / 零大面积 backdrop-filter，保证 60fps 丝滑滚动） */
+.feedSurface {
+  padding: 6px 16px;
+  border-radius: 18px;
+  background: var(--orbit-surface-strong, rgba(255, 255, 255, 0.86));
+  border: 1px solid var(--orbit-border);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
+}
+
 .list {
   list-style: none;
   margin: 0;
@@ -256,7 +265,81 @@
   margin: 0 -8px;
   border-radius: 10px;
   border-bottom: 1px solid var(--orbit-border);
-  transition: background 140ms ease;
+  transition: background 120ms ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 74px;
+}
+
+.liteTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.liteTagInfo {
+  background: rgba(59, 130, 246, 0.13);
+  color: #1d4ed8;
+}
+
+:global([data-theme='dark']) .liteTagInfo {
+  background: rgba(96, 165, 250, 0.2);
+  color: #93c5fd;
+}
+
+.liteTagSuccess {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+:global([data-theme='dark']) .liteTagSuccess {
+  background: rgba(52, 211, 153, 0.2);
+  color: #6ee7b7;
+}
+
+.liteTagDanger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b91c1c;
+}
+
+:global([data-theme='dark']) .liteTagDanger {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
+}
+
+.liteTagNeutral {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--orbit-text-muted);
+}
+
+.liteActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+  color: var(--orbit-text);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.liteActionBtn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.liteActionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .item:hover {

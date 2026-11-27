@@ -16,6 +16,9 @@
   --orbit-success: #16a34a;
   --orbit-warning: #d97706;
   --orbit-danger: #dc2626;
+  --orbit-scrollbar-thumb: rgba(15, 23, 42, 0.16);
+  --orbit-scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
+  --orbit-scrollbar-thumb-active: rgba(15, 23, 42, 0.44);
 }
 
 [data-theme="dark"] {
@@ -32,10 +35,42 @@
   --orbit-success: #22c55e;
   --orbit-warning: #f59e0b;
   --orbit-danger: #f87171;
+  --orbit-scrollbar-thumb: rgba(241, 245, 249, 0.18);
+  --orbit-scrollbar-thumb-hover: rgba(241, 245, 249, 0.34);
+  --orbit-scrollbar-thumb-active: rgba(241, 245, 249, 0.48);
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* 全局极细圆角透明轨道滚动条（Electron Chromium），消除原生粗灰白底轨道 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--orbit-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--orbit-scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--orbit-scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 html,

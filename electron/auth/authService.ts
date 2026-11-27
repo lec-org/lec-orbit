@@ -6,7 +6,7 @@
  * 3. 同时提供「Orbit 内置无边框子窗」兜底模式，全程不跳外部浏览器；
  * 4. Stage 2 全机授权模式使用独立 OIDC Opaque Token 调用 /api/lec/orbit-auth/*。
  */
-import { BrowserWindow, powerMonitor, session, type Session } from 'electron';
+import { BrowserWindow, powerMonitor, session, shell, type Session } from 'electron';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -17,6 +17,7 @@ import type {
   AuthState,
   AuthUserProfile,
   ChangePasswordInput,
+  ExternalSignInOptions,
   MfaVerifyInput,
   OrbitChallengeDetail,
   PasswordSignInInput,
@@ -301,8 +302,11 @@ export class AuthService {
         const error = reqUrl.searchParams.get('error');
         const state = reqUrl.searchParams.get('state');
         const code = reqUrl.searchParams.get('code');
+        const ok = !error && state === expectedState && Boolean(code);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<!doctype html><meta charset="utf-8"><title>Orbit</title><p>认证已完成，可关闭此窗口。</p>');
+        res.end(
+          `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Orbit 登录</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f5f7fb;color:#0f172a}.card{background:#fff;border:1px solid rgba(15,23,42,.08);border-radius:18px;padding:28px 34px;box-shadow:0 16px 40px rgba(15,23,42,.08);text-align:center;max-width:360px}h2{margin:0 0 8px;font-size:18px}p{margin:0;font-size:13px;color:#475569;line-height:1.6}</style></head><body><div class="card"><h2>${ok ? 'Orbit 登录已授权' : '授权未完成'}</h2><p>${ok ? '认证已完成，正在自动返回 Orbit 桌面端，可关闭此标签页。' : '授权校验未通过或已取消，请返回 Orbit 客户端重试。'}</p></div></body></html>`,
+        );
         if (error) {
           rejectCode(new Error(`LecSSO 返回认证错误：${error}`));
           return;
@@ -456,7 +460,7 @@ export class AuthService {
       if (initRes.status >= 400) {
         return {
           status: 'error',
-          message: String(initRes.json.message ?? '无法初始化 LecSSO 登录会话，请尝试内置安全窗登录。'),
+          message: String(initRes.json.message ?? '无法初始化 LecSSO 登录会话，请尝试浏览器快捷登录。'),
           canFallbackWeb: true,
         };
       }
@@ -552,7 +556,7 @@ export class AuthService {
       this.cleanupPendingFlow();
       return {
         status: 'error',
-        message: String(submitRes.json.message ?? '需要补充额外安全校验，请点击下方使用内置安全窗登录。'),
+        message: String(submitRes.json.message ?? '需要补充额外安全校验，请点击下方使用浏览器快捷登录。'),
         canFallbackWeb: true,
       };
     }
@@ -562,7 +566,7 @@ export class AuthService {
       this.cleanupPendingFlow();
       return {
         status: 'error',
-        message: String(submitRes.json.message ?? '提交登录失败，请重试或改用内置安全窗登录。'),
+        message: String(submitRes.json.message ?? '提交登录失败，请重试或改用浏览器快捷登录。'),
         canFallbackWeb: true,
       };
     }
@@ -615,7 +619,7 @@ export class AuthService {
       this.cleanupPendingFlow();
       return {
         status: 'error',
-        message: '未能自动完成授权回调，请重试或点击下方使用内置安全窗登录。',
+        message: '未能自动完成授权回调，请重试或点击下方使用浏览器快捷登录。',
         canFallbackWeb: true,
       };
     }
@@ -628,8 +632,27 @@ export class AuthService {
     return { status: 'authenticated', auth };
   }
 
-  async signInWithEmbeddedWindow(parentWindow: BrowserWindow | null): Promise<SignInStepResult> {
+  private pendingExternalCancel: (() => void) | null = null;
+
+  /** 取消正在等待中的系统浏览器 OAuth 登录回调。 */
+  cancelExternalSignIn(): void {
+    if (this.pendingExternalCancel) {
+      const cancel = this.pendingExternalCancel;
+      this.pendingExternalCancel = null;
+      cancel();
+    }
+  }
+
+  /**
+   * 通过系统默认浏览器执行 OAuth 2.0 PKCE 登录（支持按 provider 直达 GitHub / 飞书授权，
+   * 或按 firstScreen 直达注册页；复用浏览器内已有登录态，授权回调后自动前置唤醒 Orbit 主窗口）。
+   */
+  async signInWithEmbeddedWindow(
+    parentWindow: BrowserWindow | null,
+    options?: ExternalSignInOptions,
+  ): Promise<SignInStepResult> {
     this.cleanupPendingFlow();
+    this.cancelExternalSignIn();
     try {
       const cfg = getOrbitEndpoints();
       const discovery = await this.getDiscovery();
@@ -637,56 +660,69 @@ export class AuthService {
       const verifier = randomBytes(64).toString('base64url');
       const challenge = createHash('sha256').update(verifier).digest('base64url');
       const { server, redirectUri, callbackPromise } = await this.createLoopbackCallback(state);
+      // 防止取消或 openExternal 失败后 callbackPromise 延迟 reject 引发 UnhandledPromiseRejection
+      callbackPromise.catch(() => undefined);
 
-      const authUrl = new URL(discovery.authorization_endpoint);
-      authUrl.searchParams.set('client_id', cfg.ssoClientId);
-      authUrl.searchParams.set('redirect_uri', redirectUri);
-      authUrl.searchParams.set('response_type', 'code');
-      authUrl.searchParams.set('scope', DEFAULT_SCOPE);
-      authUrl.searchParams.set('resource', cfg.punchApiResource);
-      authUrl.searchParams.set('organization_id', cfg.ssoOrganizationId);
-      authUrl.searchParams.set('code_challenge', challenge);
-      authUrl.searchParams.set('code_challenge_method', 'S256');
-      authUrl.searchParams.set('prompt', 'consent');
-      authUrl.searchParams.set('state', state);
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      let cancelFn: (() => void) | null = null;
 
-      const loginWin = new BrowserWindow({
-        width: 460,
-        height: 660,
-        resizable: false,
-        modal: Boolean(parentWindow),
-        parent: parentWindow ?? undefined,
-        title: '登录 LecSSO',
-        autoHideMenuBar: true,
-        webPreferences: {
-          partition: ORBIT_SHARED_PARTITION,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-        },
-      });
-
-      const closedPromise = new Promise<never>((_, reject) => {
-        loginWin.on('closed', () => reject(new Error('已取消登录。')));
-      });
-
-      void loginWin.loadURL(authUrl.toString());
       try {
-        const code = await Promise.race([callbackPromise, closedPromise]);
-        await this.getSharedSession().cookies.flushStore().catch(() => undefined);
-        if (!loginWin.isDestroyed()) loginWin.close();
+        const authUrl = new URL(discovery.authorization_endpoint);
+        authUrl.searchParams.set('client_id', cfg.ssoClientId);
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('response_type', 'code');
+        authUrl.searchParams.set('scope', DEFAULT_SCOPE);
+        authUrl.searchParams.set('resource', cfg.punchApiResource);
+        authUrl.searchParams.set('organization_id', cfg.ssoOrganizationId);
+        authUrl.searchParams.set('code_challenge', challenge);
+        authUrl.searchParams.set('code_challenge_method', 'S256');
+        // 指定社交平台直达或注册页时必须携带 prompt=login，避免浏览器已有旧 LecSSO 会话直接跳过跳转；
+        // 同时保留 consent 确保 oidc-provider 签发 refresh_token。
+        if (options?.provider) {
+          authUrl.searchParams.set('direct_sign_in', `social:${options.provider}`);
+          authUrl.searchParams.set('prompt', 'login consent');
+        } else if (options?.firstScreen === 'register') {
+          authUrl.searchParams.set('first_screen', 'register');
+          authUrl.searchParams.set('prompt', 'login consent');
+        } else {
+          authUrl.searchParams.set('prompt', 'consent');
+        }
+        authUrl.searchParams.set('state', state);
+
+        const cancelPromise = new Promise<never>((_, reject) => {
+          cancelFn = () => reject(new Error('已取消浏览器登录。'));
+          this.pendingExternalCancel = cancelFn;
+          timeoutHandle = setTimeout(
+            () => reject(new Error('浏览器登录已超时（5 分钟），请重新点击登录。')),
+            5 * 60_000,
+          );
+        });
+        cancelPromise.catch(() => undefined);
+
+        await shell.openExternal(authUrl.toString());
+
+        const code = await Promise.race([callbackPromise, cancelPromise]);
         await this.exchangeCodeAndPersist(code, redirectUri, verifier);
         const auth = this.getState();
         this.emit(auth);
+        if (parentWindow && !parentWindow.isDestroyed()) {
+          if (parentWindow.isMinimized()) parentWindow.restore();
+          parentWindow.show();
+          parentWindow.focus();
+        }
         return { status: 'authenticated', auth };
       } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        // 仅清理属于本次调用的取消句柄，避免并发切换新登录方式时误清后者
+        if (cancelFn && this.pendingExternalCancel === cancelFn) {
+          this.pendingExternalCancel = null;
+        }
         server.close();
-        if (!loginWin.isDestroyed()) loginWin.close();
       }
     } catch (err) {
       return {
         status: 'error',
-        message: err instanceof Error ? err.message : '内置窗口登录失败。',
+        message: err instanceof Error ? err.message : '浏览器快捷登录失败，请稍后重试。',
         canFallbackWeb: true,
       };
     }
