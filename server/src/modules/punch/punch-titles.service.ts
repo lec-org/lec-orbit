@@ -32,6 +32,7 @@ import {
   PunchCardWeekArchiveEntity,
 } from './entities/punch-cards.entities.js';
 import { PunchUserEntity } from './entities/punch-core.entities.js';
+import { PunchTitleAchievementEntity } from './entities/punch-title-achievement.entity.js';
 import { GitHubContributorSyncService } from './github-contributor-sync.service.js';
 import { PunchAuthGuard, PunchCurrentUser, type PunchAuthUser } from './punch-auth.guard.js';
 import { CARD_CATALOG } from './punch-card-engine.js';
@@ -39,8 +40,12 @@ import { assessmentEnrollYears } from './punch-shared.util.js';
 import {
   TITLE_BY_ID,
   TITLE_CATALOG,
+  TITLE_TIER_BASE,
+  computeTitleAchievementTier,
+  formatTitleTierText,
   toMemberTitleBadge,
   type MemberTitleBadge,
+  type TitleAchievementTier,
   type TitleDefinition,
   type TitleEvaluationItem,
 } from './punch-title-catalog.js';
@@ -49,6 +54,7 @@ import {
   evaluateTeamTitles,
   extractCardInteractionsFromReceipt,
   extractGambleEventFromReceipt,
+  extractNonOverlappingStreakKeys,
   getTitleLookbackStartDate,
   hasSsrPityInReceipt,
   projectMemberTitleDisplay,
@@ -63,12 +69,17 @@ import { PunchUsersService } from './punch-users.service.js';
 export {
   TITLE_BY_ID,
   TITLE_CATALOG,
+  TITLE_TIER_BASE,
+  computeTitleAchievementTier,
+  formatTitleTierText,
   toMemberTitleBadge,
   evaluateTeamTitles,
   extractCardInteractionsFromReceipt,
   extractGambleEventFromReceipt,
+  extractNonOverlappingStreakKeys,
   hasSsrPityInReceipt,
   type MemberTitleBadge,
+  type TitleAchievementTier,
   type TitleDefinition,
   type TitleEvaluationItem,
 };
@@ -94,6 +105,7 @@ interface CardTitleDataBundle {
   currentWeekCardInteractions: TitleEngineCardInteraction[];
   gambleEventsByUser: Map<string, TitleEngineGambleEvent[]>;
   ssrPityUsers: Set<string>;
+  ssrPityReceiptKeysByUser: Map<string, string[]>;
   discoveredCardCountByUser: Map<string, number>;
   entertainmentByUserWeek: Map<string, number>;
 }
@@ -124,6 +136,8 @@ export class PunchTitlesService {
     private readonly busySnapshotRepo: Repository<MemberBusySnapshotEntity>,
     @InjectRepository(OrbitMemberEntity)
     private readonly orbitMemberRepo: Repository<OrbitMemberEntity>,
+    @InjectRepository(PunchTitleAchievementEntity)
+    private readonly achievementRepo: Repository<PunchTitleAchievementEntity>,
     private readonly usersService: PunchUsersService,
     private readonly economyLedger: EconomyLedgerService,
     private readonly githubContributorSync: GitHubContributorSyncService,
@@ -144,10 +158,11 @@ export class PunchTitlesService {
       hiddenTitleIds: [] as string[],
       displayTitles: [] as MemberTitleBadge[],
       catalog: TITLE_CATALOG.map((def) => ({
-        ...toMemberTitleBadge(def),
+        ...toMemberTitleBadge(def, 0),
         unlocked: false,
         equipped: false,
         ...(def.hideable ? { hidden: false } : {}),
+        stackRuleText: def.stackRuleText,
         progressText: '仅大一至大三可解锁',
       })),
     };
@@ -159,9 +174,16 @@ export class PunchTitlesService {
     equippedTitleId: string | null,
     hiddenTitleIds: string[],
   ) {
-    const statusById: Record<string, { unlocked: boolean; progressText?: string }> = {};
+    const statusById: Record<
+      string,
+      { unlocked: boolean; unlockCount?: number; progressText?: string }
+    > = {};
     for (const entry of mine.catalog) {
-      statusById[entry.id] = { unlocked: entry.unlocked, progressText: entry.progressText };
+      statusById[entry.id] = {
+        unlocked: entry.unlocked,
+        unlockCount: entry.unlockCount,
+        progressText: entry.progressText,
+      };
     }
     const projected = projectMemberTitleDisplay(statusById, equippedTitleId, hiddenTitleIds);
     return {
@@ -361,11 +383,10 @@ export class PunchTitlesService {
     currentWeekStartMs: number,
   ): Promise<CardTitleDataBundle> {
     const currentWeekStartIso = new Date(currentWeekStartMs).toISOString();
-    // SSR 大保底为永久称号可跳过已持久化成员；赌狗卡需实时追踪「求求你戒赌吧」5 连败与下次赌赢解除，须覆盖全部活跃应考成员
-    const needSsrPityUserIds = members
-      .filter((m) => !(Array.isArray(m.persistentTitleIds) && m.persistentTitleIds.includes('lancer-luck-e')))
-      .map((m) => m.id);
-    const needGambleUserIds = members.map((m) => m.id);
+    // 赌狗卡与 SSR 大保底均支持按次/按轮次累计升阶，覆盖全部活跃应考成员（SQL 均已严格下推过滤，极轻量）
+    const activeMemberIds = members.map((m) => m.id);
+    const needSsrPityUserIds = activeMemberIds;
+    const needGambleUserIds = activeMemberIds;
 
     const [
       game,
@@ -423,17 +444,18 @@ export class PunchTitlesService {
             }>
           >)
         : Promise.resolve([]),
-      // 3. 仅查询触发过 SSR 大保底的 DISTINCT actor_id，不拉取 JSONB 正文
+      // 3. 仅查询触发过 SSR 大保底的 (actor_id, receipt_key) 轻量键对，不拉取 JSONB 正文，用于按次累计升阶
       needSsrPityUserIds.length > 0
         ? (this.cardActionArchiveRepo.query(
-            `SELECT DISTINCT actor_id AS "actorId"
+            `SELECT actor_id AS "actorId",
+                    receipt_key AS "receiptKey"
              FROM punch_card_action_receipts
              WHERE team_id = $1
                AND actor_id = ANY($2::text[])
                AND result->>'action' = 'draw'
                AND COALESCE((result->>'ssrPity')::boolean, false) = true`,
             [teamId, needSsrPityUserIds],
-          ) as Promise<Array<{ actorId: string }>>)
+          ) as Promise<Array<{ actorId: string; receiptKey: string }>>)
         : Promise.resolve([]),
       ...weekKeys.map((wk) => this.economyLedger.getWeeklyTradeMinutesSummary(wk)),
     ]);
@@ -488,9 +510,22 @@ export class PunchTitlesService {
     // 2. 合并按需下推的归档结果与实时 game.receipts（按 receiptKey 分别去重）
     const currentWeekCardInteractions: TitleEngineCardInteraction[] = [];
     const gambleEventsByUser = new Map<string, TitleEngineGambleEvent[]>();
-    const ssrPityUsers = new Set<string>(
-      ssrPityRows.map((r) => r.actorId).filter((id): id is string => Boolean(id)),
-    );
+    const ssrPityUsers = new Set<string>();
+    const ssrPityKeySetByUser = new Map<string, Set<string>>();
+    const addSsrPityKey = (uid: string, rk: string) => {
+      ssrPityUsers.add(uid);
+      let set = ssrPityKeySetByUser.get(uid);
+      if (!set) {
+        set = new Set<string>();
+        ssrPityKeySetByUser.set(uid, set);
+      }
+      set.add(rk);
+    };
+    for (const row of ssrPityRows) {
+      if (row.actorId) {
+        addSsrPityKey(row.actorId, row.receiptKey || `archive:${row.actorId}`);
+      }
+    }
     const seenWeekReceiptKeys = new Set<string>();
     const seenGambleReceiptKeys = new Set<string>();
 
@@ -552,15 +587,21 @@ export class PunchTitlesService {
           }
         }
         if (receipt.actorId && hasSsrPityInReceipt(receipt)) {
-          ssrPityUsers.add(receipt.actorId);
+          addSsrPityKey(receipt.actorId, key);
         }
       }
+    }
+
+    const ssrPityReceiptKeysByUser = new Map<string, string[]>();
+    for (const [uid, keySet] of ssrPityKeySetByUser.entries()) {
+      ssrPityReceiptKeysByUser.set(uid, [...keySet]);
     }
 
     return {
       currentWeekCardInteractions,
       gambleEventsByUser,
       ssrPityUsers,
+      ssrPityReceiptKeysByUser,
       discoveredCardCountByUser,
       entertainmentByUserWeek,
     };
@@ -584,6 +625,38 @@ export class PunchTitlesService {
          updated_at = NOW()
          WHERE team_id = $2 AND id = $3`,
         [JSON.stringify(item.newIds), teamId, item.userId],
+      );
+    }
+  }
+
+  /** 批量幂等写入新达成的称号成就记录（ON CONFLICT DO NOTHING，绝不产生跨列竞态与重复计数）。 */
+  private async persistNewAchievementRecords(
+    teamId: string,
+    records: ReadonlyArray<{ userId: string; titleId: string; occurrenceKey: string }>,
+    achievedAt: Date,
+  ): Promise<void> {
+    if (records.length === 0) return;
+    const sorted = [...records].sort(
+      (a, b) =>
+        a.userId.localeCompare(b.userId) ||
+        a.titleId.localeCompare(b.titleId) ||
+        a.occurrenceKey.localeCompare(b.occurrenceKey),
+    );
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < sorted.length; i += CHUNK_SIZE) {
+      const chunk = sorted.slice(i, i + CHUNK_SIZE);
+      const valuesSql: string[] = [];
+      const params: unknown[] = [];
+      chunk.forEach((rec, idx) => {
+        const base = idx * 5;
+        valuesSql.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+        params.push(teamId, rec.userId, rec.titleId, rec.occurrenceKey, achievedAt);
+      });
+      await this.achievementRepo.query(
+        `INSERT INTO punch_title_achievements (team_id, user_id, title_id, occurrence_key, achieved_at)
+         VALUES ${valuesSql.join(', ')}
+         ON CONFLICT (team_id, user_id, title_id, occurrence_key) DO NOTHING`,
+        params,
       );
     }
   }
@@ -651,41 +724,67 @@ export class PunchTitlesService {
       .map((m) => m.logtoUserId)
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-    const [rawSessions, adjRows, cardBundle, busySnapshots, orbitMembers, releaseContributors] =
-      await Promise.all([
-        this.sessionRepo.find({
-          where: {
-            teamId,
-            status: Not('invalidated'),
-            checkInAt: MoreThanOrEqual(lookbackStart),
-          },
-          select: {
-            userId: true,
-            checkInAt: true,
-            checkOutAt: true,
-            durationSeconds: true,
-            status: true,
-            weekKey: true,
-          },
-        }),
-        this.adjRepo.query(
-          `SELECT user_id AS "userId",
-                  week_key AS "weekKey",
-                  COALESCE(SUM(signed_duration_seconds), 0)::int AS "manualSeconds"
-           FROM punch_attendance_duration_adjustments
-           WHERE team_id = $1 AND week_key = ANY($2::text[])
-           GROUP BY user_id, week_key`,
-          [teamId, targetWeeks],
-        ) as Promise<Array<{ userId: string; weekKey: string; manualSeconds: number }>>,
-        this.loadCardTitleDataBundle(teamId, members, targetWeeks, currentWeekStartMs),
-        ssoIds.length > 0
-          ? this.busySnapshotRepo.find({ where: { userId: In(ssoIds) } })
-          : Promise.resolve([] as MemberBusySnapshotEntity[]),
-        ssoIds.length > 0
-          ? this.orbitMemberRepo.find({ where: { userId: In(ssoIds) } })
-          : Promise.resolve([] as OrbitMemberEntity[]),
-        this.githubContributorSync.listReleaseContributors(),
-      ]);
+    const [
+      rawSessions,
+      adjRows,
+      cardBundle,
+      busySnapshots,
+      orbitMembers,
+      releaseContributors,
+      achievementRows,
+    ] = await Promise.all([
+      this.sessionRepo.find({
+        where: {
+          teamId,
+          status: Not('invalidated'),
+          checkInAt: MoreThanOrEqual(lookbackStart),
+        },
+        select: {
+          userId: true,
+          checkInAt: true,
+          checkOutAt: true,
+          durationSeconds: true,
+          status: true,
+          weekKey: true,
+        },
+      }),
+      this.adjRepo.query(
+        `SELECT user_id AS "userId",
+                week_key AS "weekKey",
+                COALESCE(SUM(signed_duration_seconds), 0)::int AS "manualSeconds"
+         FROM punch_attendance_duration_adjustments
+         WHERE team_id = $1 AND week_key = ANY($2::text[])
+         GROUP BY user_id, week_key`,
+        [teamId, targetWeeks],
+      ) as Promise<Array<{ userId: string; weekKey: string; manualSeconds: number }>>,
+      this.loadCardTitleDataBundle(teamId, members, targetWeeks, currentWeekStartMs),
+      ssoIds.length > 0
+        ? this.busySnapshotRepo.find({ where: { userId: In(ssoIds) } })
+        : Promise.resolve([] as MemberBusySnapshotEntity[]),
+      ssoIds.length > 0
+        ? this.orbitMemberRepo.find({ where: { userId: In(ssoIds) } })
+        : Promise.resolve([] as OrbitMemberEntity[]),
+      this.githubContributorSync.listReleaseContributors(),
+      this.achievementRepo.find({
+        where: { teamId, userId: In(members.map((m) => m.id)) },
+        select: { userId: true, titleId: true, occurrenceKey: true },
+      }),
+    ]);
+
+    const existingAchievementKeysByUser = new Map<string, Map<string, Set<string>>>();
+    for (const row of achievementRows) {
+      let byTitle = existingAchievementKeysByUser.get(row.userId);
+      if (!byTitle) {
+        byTitle = new Map();
+        existingAchievementKeysByUser.set(row.userId, byTitle);
+      }
+      let keys = byTitle.get(row.titleId);
+      if (!keys) {
+        keys = new Set();
+        byTitle.set(row.titleId, keys);
+      }
+      keys.add(row.occurrenceKey);
+    }
 
     const manualAdjustmentsByUserWeek = new Map<string, number>();
     for (const row of adjRows) {
@@ -735,8 +834,10 @@ export class PunchTitlesService {
       currentWeekCardInteractions: cardBundle.currentWeekCardInteractions,
       gambleEventsByUser: cardBundle.gambleEventsByUser,
       ssrPityUsers: cardBundle.ssrPityUsers,
+      ssrPityReceiptKeysByUser: cardBundle.ssrPityReceiptKeysByUser,
       releaseContributors,
       totalCatalogCards: CARD_CATALOG.length,
+      existingAchievementKeysByUser,
     });
 
     // 单列原子 JSONB 并集持久化新解锁的长期称号，严禁全列 userRepo.save 引发跨列覆盖竞态
@@ -746,14 +847,30 @@ export class PunchTitlesService {
         newIds: byUserId.get(member.id)?.newlyUnlockedPersistentTitleIds ?? [],
       }))
       .filter((item) => item.newIds.length > 0);
-    if (toPersist.length > 0) {
-      try {
-        await this.persistNewlyUnlockedTitles(teamId, toPersist);
-      } catch (err) {
-        this.logger.warn(
-          `持久化长期称号解锁记录失败: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+    const newAchievements = members.flatMap((member) =>
+      (byUserId.get(member.id)?.newAchievementRecords ?? []).map((rec) => ({
+        userId: member.id,
+        titleId: rec.titleId,
+        occurrenceKey: rec.occurrenceKey,
+      })),
+    );
+    if (toPersist.length > 0 || newAchievements.length > 0) {
+      await Promise.all([
+        toPersist.length > 0
+          ? this.persistNewlyUnlockedTitles(teamId, toPersist).catch((err) => {
+              this.logger.warn(
+                `持久化长期称号解锁记录失败: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            })
+          : Promise.resolve(),
+        newAchievements.length > 0
+          ? this.persistNewAchievementRecords(teamId, newAchievements, now).catch((err) => {
+              this.logger.warn(
+                `持久化称号成就累计记录失败: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            })
+          : Promise.resolve(),
+      ]);
     }
 
     const snapshot: CachedTeamTitles = {

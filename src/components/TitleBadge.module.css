@@ -69,6 +69,84 @@
   gap: 3px;
 }
 
+.popoverRowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.popoverTierMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-family: var(--orbit-mono);
+  font-weight: 600;
+  color: var(--orbit-text-muted);
+  white-space: nowrap;
+}
+
+.tierCompactWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1px solid currentColor;
+  border-left-color: color-mix(in srgb, currentColor 28%, transparent);
+}
+
+.tierFullWrap {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tierUnit {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  line-height: 1;
+}
+
+.tierMul {
+  font-family: var(--orbit-mono);
+  font-size: 0.88em;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tierCrown {
+  color: #d97706;
+}
+:global([data-theme='dark']) .tierCrown {
+  color: #fbbf24;
+}
+
+.tierSun {
+  color: #ea580c;
+}
+:global([data-theme='dark']) .tierSun {
+  color: #fb923c;
+}
+
+.tierMoon {
+  color: #ca8a04;
+}
+:global([data-theme='dark']) .tierMoon {
+  color: #fcd34d;
+}
+
+.tierStar {
+  color: #f59e0b;
+}
+:global([data-theme='dark']) .tierStar {
+  color: #fde047;
+}
+
 .popoverDesc {
   font-size: 11px;
   line-height: 1.4;

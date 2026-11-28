@@ -5,6 +5,7 @@ import { MemberBusySnapshotEntity } from '../calendar/entities/member-busy-snaps
 import { OrbitMemberEntity } from '../roster/entities/orbit-member.entity.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { OrbitReleaseContributorEntity } from './entities/orbit-release-contributor.entity.js';
+import { PunchTitleAchievementEntity } from './entities/punch-title-achievement.entity.js';
 import { GitHubContributorSyncService } from './github-contributor-sync.service.js';
 import {
   PunchMemberEligibilityEntity,
@@ -84,6 +85,7 @@ import { PunchShopController } from './punch-shop.controller.js';
       PunchTeamLedgerEntryEntity,
       PunchSkinUnlockEntity,
       OrbitReleaseContributorEntity,
+      PunchTitleAchievementEntity,
       MemberBusySnapshotEntity,
       OrbitMemberEntity,
     ]),
