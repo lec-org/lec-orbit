@@ -3,6 +3,8 @@ import type { AppConfig } from '../config/env.config.js';
 import { OrbitMemberEntity } from '../modules/roster/entities/orbit-member.entity.js';
 import { AnnouncementEntity } from '../modules/announcements/entities/announcement.entity.js';
 import { AnnouncementReceiptEntity } from '../modules/announcements/entities/announcement-receipt.entity.js';
+import { StudioCalendarEventEntity } from '../modules/calendar/entities/studio-calendar-event.entity.js';
+import { MemberBusySnapshotEntity } from '../modules/calendar/entities/member-busy-snapshot.entity.js';
 import { NotificationEntity } from '../modules/notifications/entities/notification.entity.js';
 import { NotificationReadEntity } from '../modules/notifications/entities/notification-read.entity.js';
 import { MiniAppEntity } from '../modules/miniapps/entities/mini-app.entity.js';
@@ -48,6 +50,8 @@ import {
   PunchTeamLedgerEntryEntity,
   PunchWeeklyReportRefEntity,
 } from '../modules/punch/entities/punch-collab.entities.js';
+import { OrbitReleaseContributorEntity } from '../modules/punch/entities/orbit-release-contributor.entity.js';
+import { PunchTitleAchievementEntity } from '../modules/punch/entities/punch-title-achievement.entity.js';
 import {
   MiniAppFunctionBundleEntity,
   MiniAppGlobalKvEntity,
@@ -60,11 +64,17 @@ import { AddMiniAppFunctions1764300000000 } from './migrations/1764300000000-Add
 import { AddOrbitMemberProfileFields1764400000000 } from './migrations/1764400000000-AddOrbitMemberProfileFields.js';
 import { AddMiniAppEngagementTables1764500000000 } from './migrations/1764500000000-AddMiniAppEngagementTables.js';
 import { AddMiniAppPlayDaily1764600000000 } from './migrations/1764600000000-AddMiniAppPlayDaily.js';
+import { AddDutySchedule1764800000000 } from './migrations/1764800000000-AddDutySchedule.js';
+import { AddStudioCalendarAndFreeBusy1764900000000 } from './migrations/1764900000000-AddStudioCalendarAndFreeBusy.js';
+import { AddTitleUnlocksAndReleaseContributors1765000000000 } from './migrations/1765000000000-AddTitleUnlocksAndReleaseContributors.js';
+import { AddTitleAchievementRecords1765100000000 } from './migrations/1765100000000-AddTitleAchievementRecords.js';
 
 export const ALL_ENTITIES = [
   OrbitMemberEntity,
   AnnouncementEntity,
   AnnouncementReceiptEntity,
+  StudioCalendarEventEntity,
+  MemberBusySnapshotEntity,
   NotificationEntity,
   NotificationReadEntity,
   MiniAppEntity,
@@ -101,6 +111,8 @@ export const ALL_ENTITIES = [
   PunchTeamEventEntity,
   PunchTeamLedgerEntryEntity,
   PunchSkinUnlockEntity,
+  OrbitReleaseContributorEntity,
+  PunchTitleAchievementEntity,
   // Orbit 托管云函数 FaaS 3 张核心表
   MiniAppFunctionBundleEntity,
   MiniAppGlobalKvEntity,
@@ -115,6 +127,10 @@ export const ALL_MIGRATIONS = [
   AddOrbitMemberProfileFields1764400000000,
   AddMiniAppEngagementTables1764500000000,
   AddMiniAppPlayDaily1764600000000,
+  AddDutySchedule1764800000000,
+  AddStudioCalendarAndFreeBusy1764900000000,
+  AddTitleUnlocksAndReleaseContributors1765000000000,
+  AddTitleAchievementRecords1765100000000,
 ];
 
 export function buildTypeOrmOptions(cfg: AppConfig): DataSourceOptions {

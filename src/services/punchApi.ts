@@ -95,6 +95,7 @@ export const PUNCH_ENDPOINTS = {
   ackNotification: (id: string) => `/notifications/${encodeURIComponent(id)}/ack`,
   titlesMe: '/titles/me',
   titlesEquip: '/titles/me/equip',
+  titlesVisibility: '/titles/me/visibility',
   cardsMe: '/cards/me',
   cardsActions: '/cards/actions',
   cardsGiftsAck: '/cards/gifts/ack',
@@ -172,6 +173,8 @@ function normalizeTitleBadges(raw: unknown): MemberTitleBadge[] {
       proposer: typeof item.proposer === 'string' ? item.proposer : 'LEC',
       category: (item.category as MemberTitleBadge['category']) ?? 'honor',
       forced: Boolean(item.forced),
+      ...(item.persistent ? { persistent: true } : {}),
+      ...(item.hideable ? { hideable: true } : {}),
       icon: (item.icon as MemberTitleBadge['icon']) ?? 'crown',
       theme: (item.theme as MemberTitleBadge['theme']) ?? 'amber',
     }));
@@ -266,20 +269,35 @@ export const punchApi = {
     return this.fetchAttendance();
   },
 
-  async checkOut(): Promise<AttendanceSnapshot> {
+  async checkOut(): Promise<
+    AttendanceSnapshot & { remoteCheckOut?: boolean; checkOutNotice?: string }
+  > {
     const scan = await collectWifiScanForApi(true);
+    let remoteCheckOut = false;
+    let checkOutNotice: string | undefined;
     try {
-      await client.post(
+      const { data } = await client.post<{
+        remoteCheckOut?: boolean;
+        checkOutNotice?: string;
+      }>(
         PUNCH_ENDPOINTS.checkOut,
         scan.samples.length > 0 ? { wifiScan: scan.samples } : {},
       );
+      remoteCheckOut = Boolean(data?.remoteCheckOut);
+      if (typeof data?.checkOutNotice === 'string' && data.checkOutNotice.trim()) {
+        checkOutNotice = data.checkOutNotice.trim();
+      }
     } catch (err) {
       if (err instanceof PunchApiError && err.status === 403 && scan.samples.length === 0 && scan.error) {
         throw new PunchApiError(`${err.message}（${scan.error}）`, 403);
       }
       throw err;
     }
-    return this.fetchAttendance();
+    const snapshot = await this.fetchAttendance();
+    return {
+      ...snapshot,
+      ...(remoteCheckOut ? { remoteCheckOut, checkOutNotice } : {}),
+    };
   },
 
   async sendAttendanceKeepAlive(forceWifiScan = true): Promise<{
@@ -687,6 +705,7 @@ export const punchApi = {
       weekKey: data.weekKey ?? '',
       eligible: data.eligible ?? true,
       equippedTitleId: data.equippedTitleId ?? null,
+      hiddenTitleIds: Array.isArray(data.hiddenTitleIds) ? data.hiddenTitleIds : [],
       displayTitles: normalizeTitleBadges(data.displayTitles),
       catalog: Array.isArray(data.catalog) ? data.catalog : [],
     };
@@ -698,6 +717,22 @@ export const punchApi = {
       weekKey: data.weekKey ?? '',
       eligible: data.eligible ?? true,
       equippedTitleId: data.equippedTitleId ?? null,
+      hiddenTitleIds: Array.isArray(data.hiddenTitleIds) ? data.hiddenTitleIds : [],
+      displayTitles: normalizeTitleBadges(data.displayTitles),
+      catalog: Array.isArray(data.catalog) ? data.catalog : [],
+    };
+  },
+
+  async setTitleVisibility(titleId: string, hidden: boolean): Promise<MyTitlesView> {
+    const { data } = await client.patch<MyTitlesView>(PUNCH_ENDPOINTS.titlesVisibility, {
+      titleId,
+      hidden,
+    });
+    return {
+      weekKey: data.weekKey ?? '',
+      eligible: data.eligible ?? true,
+      equippedTitleId: data.equippedTitleId ?? null,
+      hiddenTitleIds: Array.isArray(data.hiddenTitleIds) ? data.hiddenTitleIds : [],
       displayTitles: normalizeTitleBadges(data.displayTitles),
       catalog: Array.isArray(data.catalog) ? data.catalog : [],
     };

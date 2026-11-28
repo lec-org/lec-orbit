@@ -72,7 +72,21 @@ export type TitleIconKey =
   | 'flame'
   | 'egg'
   | 'swords'
-  | 'hourglass';
+  | 'hourglass'
+  | 'target'
+  | 'dices'
+  | 'skull'
+  | 'ghost'
+  | 'git-pull-request'
+  | 'clover'
+  | 'layers'
+  | 'library'
+  | 'book-open'
+  | 'graduation-cap'
+  | 'sparkles'
+  | 'timer'
+  | 'battery-low'
+  | 'alert-triangle';
 
 export type TitleThemeKey =
   | 'amber'
@@ -85,7 +99,112 @@ export type TitleThemeKey =
   | 'crimson'
   | 'purple'
   | 'rose'
-  | 'alert';
+  | 'alert'
+  | 'teal'
+  | 'slate';
+
+/** 称号成就升阶进位基数（标准 5 进制：逢 5 进 1，5 星=1 月亮、5 月亮=1 太阳、5 太阳=1 皇冠）。 */
+export const TITLE_TIER_BASE = 5;
+
+export interface TitleAchievementTier {
+  count: number;
+  points: number;
+  crowns: number;
+  suns: number;
+  moons: number;
+  stars: number;
+  nextMajorTierLabel: string | null;
+  nextMajorTierCount: number | null;
+}
+
+/**
+ * 称号成就升阶计算（标准 5 进制：逢 5 进 1，与服务端 punch-title-catalog.ts 完全一致）：
+ * - 第 1 次：基础解锁（0 进阶点）
+ * - 第 2–5 次：1–4 星
+ * - 第 6 次（满 5 进阶点）：1 月亮
+ * - 第 26 次（满 25 进阶点）：1 太阳
+ * - 第 126 次（满 125 进阶点）：1 皇冠
+ */
+export function computeTitleAchievementTier(
+  count: number,
+  stackable = true,
+): TitleAchievementTier {
+  const safeCount = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0));
+  if (!stackable) {
+    return {
+      count: Math.min(1, safeCount),
+      points: 0,
+      crowns: 0,
+      suns: 0,
+      moons: 0,
+      stars: 0,
+      nextMajorTierLabel: null,
+      nextMajorTierCount: null,
+    };
+  }
+  if (safeCount <= 0) {
+    return {
+      count: 0,
+      points: 0,
+      crowns: 0,
+      suns: 0,
+      moons: 0,
+      stars: 0,
+      nextMajorTierLabel: '解锁成就',
+      nextMajorTierCount: 1,
+    };
+  }
+  const points = safeCount - 1;
+  const base = TITLE_TIER_BASE;
+  const sunUnit = base * base;
+  const crownUnit = sunUnit * base;
+  const stars = points % base;
+  const moons = Math.floor(points / base) % base;
+  const suns = Math.floor(points / sunUnit) % base;
+  const crowns = Math.floor(points / crownUnit);
+
+  let nextMajorTierLabel: string;
+  let nextMajorTierCount: number;
+  if (points < 1) {
+    nextMajorTierLabel = '1 星';
+    nextMajorTierCount = 2;
+  } else if (points < base) {
+    nextMajorTierLabel = '1 月亮';
+    nextMajorTierCount = base + 1;
+  } else if (points < sunUnit) {
+    nextMajorTierLabel = '1 太阳';
+    nextMajorTierCount = sunUnit + 1;
+  } else if (points < crownUnit) {
+    nextMajorTierLabel = '1 皇冠';
+    nextMajorTierCount = crownUnit + 1;
+  } else {
+    nextMajorTierLabel = `${crowns + 1} 皇冠`;
+    nextMajorTierCount = (crowns + 1) * crownUnit + 1;
+  }
+
+  return {
+    count: safeCount,
+    points,
+    crowns,
+    suns,
+    moons,
+    stars,
+    nextMajorTierLabel,
+    nextMajorTierCount,
+  };
+}
+
+/** 将成就阶位格式化为中文摘要（如「1 月亮 3 星」）。 */
+export function formatTitleTierText(tier: TitleAchievementTier): string {
+  if (tier.count <= 0) return '未解锁';
+  if (tier.points <= 0) return '基础解锁';
+  const parts: string[] = [];
+  if (tier.crowns > 0) parts.push(`${tier.crowns} 皇冠`);
+  if (tier.suns > 0) parts.push(`${tier.suns} 太阳`);
+  if (tier.moons > 0) parts.push(`${tier.moons} 月亮`);
+  if (tier.stars > 0) parts.push(`${tier.stars} 星`);
+  return parts.join(' ');
+}
 
 export interface MemberTitleBadge {
   id: string;
@@ -94,6 +213,11 @@ export interface MemberTitleBadge {
   proposer: string;
   category: TitleCategory;
   forced: boolean;
+  persistent?: boolean;
+  hideable?: boolean;
+  stackable?: boolean;
+  /** 历史累计达成次数（>=2 时按标准 5 进制逢 5 进 1 展示星/月/日/冠阶位）。 */
+  unlockCount?: number;
   icon: TitleIconKey;
   theme: TitleThemeKey;
 }
@@ -101,6 +225,8 @@ export interface MemberTitleBadge {
 export interface TitleEvaluationItem extends MemberTitleBadge {
   unlocked: boolean;
   equipped: boolean;
+  hidden?: boolean;
+  stackRuleText?: string;
   progressText?: string;
 }
 
@@ -109,6 +235,7 @@ export interface MyTitlesView {
   /** 是否处于大一至大三称号判定范围内（false 表示往届/毕业成员仅可浏览图鉴） */
   eligible?: boolean;
   equippedTitleId: string | null;
+  hiddenTitleIds?: string[];
   displayTitles: MemberTitleBadge[];
   catalog: TitleEvaluationItem[];
 }

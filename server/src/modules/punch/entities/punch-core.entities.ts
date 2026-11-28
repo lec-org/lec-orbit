@@ -78,6 +78,14 @@ export class PunchUserEntity {
   @Column({ name: 'equipped_title_id', type: 'text', nullable: true })
   equippedTitleId: string | null;
 
+  /** 已永久解锁的长期称号 ID 列表（如赌王、戒赌、贡献王、自古枪兵幸运e、收集系列）。 */
+  @Column({ name: 'persistent_title_ids', type: 'jsonb', default: () => "'[]'::jsonb" })
+  persistentTitleIds: string[];
+
+  /** 成员主动关闭展示的称号 ID 列表（默认空，即所有可关闭称号默认打开）。 */
+  @Column({ name: 'hidden_title_ids', type: 'jsonb', default: () => "'[]'::jsonb" })
+  hiddenTitleIds: string[];
+
   @Column({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

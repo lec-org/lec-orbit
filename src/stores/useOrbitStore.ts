@@ -1,5 +1,6 @@
 /** Orbit 全局状态管理（Zustand）：协调身份、配置、弹窗避让与本地缓存。 */
 import { create } from 'zustand';
+import { useScheduleStore } from './useScheduleStore';
 import {
   INITIAL_BLOG_VIEW_STATE,
   OrbitConfigSchema,
@@ -35,6 +36,7 @@ import type {
   TeamWeeklyRankingItem,
 } from '@shared/punch';
 import { getOrbitClient } from '@/services/orbitClient';
+import { useCalendarStore } from '@/stores/useCalendarStore';
 import {
   blogApi,
   BlogApiError,
@@ -54,6 +56,7 @@ import { punchApi, PunchApiError } from '@/services/punchApi';
 
 export type OrbitNavTab =
   | 'punch-today'
+  | 'schedule'
   | 'punch-growth'
   | 'punch-cards'
   | 'punch-studio'
@@ -167,7 +170,9 @@ interface OrbitStoreState {
   sendAttendanceHeartbeat: () => Promise<void>;
   applyOrbitWsEvent: (event: OrbitWsEvent) => void;
   toggleCheckInOut: () => Promise<{ ok: boolean; message: string; status?: number }>;
+  checkOut: () => Promise<{ ok: boolean; message: string; skipped?: boolean; status?: number }>;
   equipTitle: (titleId: string | null) => Promise<void>;
+  setTitleVisibility: (titleId: string, hidden: boolean) => Promise<void>;
   ackNotification: (id: string) => Promise<void>;
 }
 
@@ -195,6 +200,7 @@ let lastOrbitSyncAt = 0;
 let lastCardSyncAt = 0;
 let consecutiveEnvMisses = 0;
 let lastEnvLeaveNotifiedAt = 0;
+let envLeaveNotifiedCount = 0;
 let heartbeatInFlight = false;
 let blogsRequestId = 0;
 let blogConfigInFlight: Promise<BlogPublicConfig | null> | null = null;
@@ -377,7 +383,11 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       blogsRequestId++;
       consecutiveEnvMisses = 0;
       lastEnvLeaveNotifiedAt = 0;
+      envLeaveNotifiedCount = 0;
       void getOrbitClient().blog.deactivate();
+      // 登出或切换账号时同步重置日历与课表 Store，防止旧账号日程/课表残留串号并污染新账号云端快照
+      useCalendarStore.getState().reset();
+      useScheduleStore.getState().reset();
       set({
         memberBlogs: [],
         myBlog: null,
@@ -754,25 +764,69 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     }
   },
 
+  checkOut: async () => {
+    const { attendance } = get();
+    if (!attendance?.isCheckedIn) {
+      return {
+        ok: true,
+        skipped: true,
+        message: '当前已签退，无需重复操作。',
+      };
+    }
+    try {
+      const updated = await punchApi.checkOut();
+      consecutiveEnvMisses = 0;
+      lastEnvLeaveNotifiedAt = 0;
+      envLeaveNotifiedCount = 0;
+      set({ attendance: updated });
+      void getOrbitClient().storage.setCache('punch:attendance', updated);
+      void get().refreshPunchData();
+      const remoteMeta = updated as AttendanceSnapshot & {
+        remoteCheckOut?: boolean;
+        checkOutNotice?: string;
+      };
+      const remoteNotice = remoteMeta.remoteCheckOut
+        ? remoteMeta.checkOutNotice || '已远程签退，本次专注时长已按最后一次在工作室内的时间结算。'
+        : null;
+      return {
+        ok: true,
+        message: remoteNotice ?? '已签退，本次专注时长已记录。',
+      };
+    } catch (err) {
+      if (err instanceof PunchApiError && err.status === 403) {
+        void get().refreshNetworkStatus(false);
+      }
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : '签退失败，请检查网络连接与登录状态。',
+        status: err instanceof PunchApiError ? err.status : undefined,
+      };
+    }
+  },
+
   toggleCheckInOut: async () => {
     const { attendance, networkStatus } = get();
     const isCheckedIn = Boolean(attendance?.isCheckedIn);
-    if (!isCheckedIn && networkStatus && !networkStatus.allowed && !networkStatus.wifiFingerprintEnabled) {
+    if (isCheckedIn) {
+      return get().checkOut();
+    }
+    if (networkStatus && !networkStatus.allowed && !networkStatus.wifiFingerprintEnabled) {
       return {
         ok: false,
         message: networkStatus.reason || '当前网络不在工作室允许签到的白名单范围内。',
       };
     }
     try {
-      const updated = isCheckedIn ? await punchApi.checkOut() : await punchApi.checkIn();
+      const updated = await punchApi.checkIn();
       consecutiveEnvMisses = 0;
       lastEnvLeaveNotifiedAt = 0;
+      envLeaveNotifiedCount = 0;
       set({ attendance: updated });
       void getOrbitClient().storage.setCache('punch:attendance', updated);
       void get().refreshPunchData();
       return {
         ok: true,
-        message: isCheckedIn ? '已签退，本次专注时长已记录。' : '签到成功，开始今日专注！',
+        message: '签到成功，开始今日专注！',
       };
     } catch (err) {
       if (err instanceof PunchApiError && err.status === 403) {
@@ -827,6 +881,7 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
     }
     if (now - lastOrbitSyncAt >= minIntervalMs) {
       void get().refreshOrbitCenter();
+      void useCalendarStore.getState().syncStudioEvents({ silent: true });
     }
   },
 
@@ -874,22 +929,55 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       if (res.environment?.wifiFingerprintEnabled) {
         if (res.environment.allowed) {
           consecutiveEnvMisses = 0;
+          envLeaveNotifiedCount = 0;
         } else {
           consecutiveEnvMisses += 1;
           const now = Date.now();
-          // 连续 2 次心跳（约 6 分钟）均未命中工作室环境时提醒签退，避免单次 Wi-Fi 波动误报，且至少间隔 15 分钟提醒一次
-          if (consecutiveEnvMisses >= 2 && now - lastEnvLeaveNotifiedAt >= 15 * 60_000) {
+          // 连续 2 次心跳（约 6 分钟）均未命中工作室环境时温和提醒，每次间隔 30 分钟且同一次离场最多提醒 2 次，
+          // 避免循环骚扰，并在 Toast 中提供一键「立即远程签退」动作。
+          if (
+            consecutiveEnvMisses >= 2 &&
+            envLeaveNotifiedCount < 2 &&
+            now - lastEnvLeaveNotifiedAt >= 30 * 60_000
+          ) {
             lastEnvLeaveNotifiedAt = now;
-            const title = '未检测到工作室环境';
+            envLeaveNotifiedCount += 1;
+            const title = '检测到已离开工作室环境';
             const body =
-              res.environment.scanError ||
-              res.environment.reason ||
-              '连续多次未检测到工作室周边 Wi-Fi 信号，若已离开工作室请记得及时签退。';
+              '若已离开工作室可点击「立即签退」（将按最后一次确认在工作室内的时间结算，无需返回打卡区）。';
             void getOrbitClient().system.notify(title, body);
             notifyToast({
               tone: 'info',
               title,
               description: body,
+              action: {
+                label: '立即签退',
+                onClick: () => {
+                  if (!get().attendance?.isCheckedIn) {
+                    notifyToast({
+                      tone: 'info',
+                      title: '当前已签退',
+                      description: '无需重复签退。',
+                    });
+                    return;
+                  }
+                  void get().checkOut().then((result) => {
+                    if (result.skipped) {
+                      notifyToast({
+                        tone: 'info',
+                        title: '当前已签退',
+                        description: result.message,
+                      });
+                      return;
+                    }
+                    notifyToast({
+                      tone: result.ok ? 'success' : 'error',
+                      title: result.ok ? '签退成功' : '签退失败',
+                      description: result.message,
+                    });
+                  });
+                },
+              },
             });
           }
         }
@@ -1082,6 +1170,13 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
 
   applyOrbitWsEvent: (event) => {
     const mySub = get().auth.profile?.subject;
+    if (
+      useCalendarStore
+        .getState()
+        .applyStudioWsEvent(event, mySub, () => get().setActiveTab('schedule'))
+    ) {
+      return;
+    }
     if (event.type === 'announcement.created') {
       const ann = event.payload as unknown as OrbitAnnouncement;
       const isAuthor = ann.authorId === mySub;
@@ -1223,6 +1318,26 @@ export const useOrbitStore = create<OrbitStoreState>((set, get) => ({
       notifyToast({
         tone: 'error',
         title: '切换称号失败',
+        description: err instanceof Error ? err.message : '请稍后重试。',
+      });
+    }
+  },
+
+  setTitleVisibility: async (titleId, hidden) => {
+    try {
+      const updated = await punchApi.setTitleVisibility(titleId, hidden);
+      set({ myTitles: updated });
+      const targetName = updated.catalog.find((t) => t.id === titleId)?.name ?? '称号';
+      notifyToast({
+        tone: 'success',
+        title: hidden ? `已关闭「${targetName}」展示` : `已开启「${targetName}」展示`,
+        description: '你的工作室在岗卡片与团队周榜已同步更新。',
+      });
+      void get().refreshPunchData();
+    } catch (err) {
+      notifyToast({
+        tone: 'error',
+        title: '更新称号开关失败',
         description: err instanceof Error ? err.message : '请稍后重试。',
       });
     }

@@ -1,5 +1,5 @@
 /** Orbit（伴程）Electron 主进程入口：单实例锁、协议注册、三层存储、窗口管理与 IPC 编排。 */
-import { app, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import { getOrbitEndpoints } from '../src/shared/env';
 import {
   ChangePasswordInputSchema,
   DocBoundsSchema,
+  ExternalSignInOptionsSchema,
   MfaVerifyInputSchema,
   OrbitConfigPatchSchema,
   PasswordSignInInputSchema,
@@ -23,6 +24,28 @@ import {
   MiniAppTypeSchema,
   OrbitAppManifestSchema,
 } from '../src/shared/miniapp';
+import {
+  ImportIcsFileInputSchema,
+  SaveCalendarCategoryInputSchema,
+  SaveCalendarSubscriptionInputSchema,
+  UpsertCalendarEventInputSchema,
+  UpsertCalendarTaskInputSchema,
+} from '../src/shared/calendar';
+import {
+  fetchIcsSubscription,
+  pickAndParseLocalIcsFile,
+  syncCnHolidaysData,
+} from './schedule/calendarSync';
+import {
+  ApplySwpuImportInputSchema,
+  CreateScheduleInputSchema,
+  OrbitSharePackageSchema,
+  SaveTimetableInputSchema,
+  UpdateScheduleInputSchema,
+  UpsertCourseInputSchema,
+  buildOrbitSharePackage,
+  generateScheduleIcs,
+} from '../src/shared/schedule';
 import { AuthService } from './auth/authService';
 import { parseOrbitProtocolUrl } from './auth/protocol';
 import { LocalDocHost } from './doc/localDocHost';
@@ -31,7 +54,8 @@ import {
   registerMiniAppProtocolScheme,
 } from './miniapp/containerManager';
 import { MiniAppPackageManager } from './miniapp/packageManager';
-import { scanNearbyWifi } from './network/wifiScanner';
+import { requestMacLocationPermission, scanNearbyWifi } from './network/wifiScanner';
+import { SwpuScheduleImporter } from './schedule/swpuImporter';
 import { ConfigStore } from './storage/configStore';
 import { LocalDB } from './storage/localDb';
 import { SecretStore } from './storage/secretStore';
@@ -84,6 +108,7 @@ let trayManager: TrayManager;
 let updater: OrbitUpdater;
 let miniAppPackageManager: MiniAppPackageManager;
 let miniAppContainerManager: MiniAppContainerManager;
+let swpuScheduleImporter: SwpuScheduleImporter;
 
 function currentScopeKey(): string {
   const sub = authService?.getState().profile?.subject || 'anonymous';
@@ -135,6 +160,256 @@ function registerBlogIpcHandlers(): void {
   handle('getState', () => windowManager.blog.getState());
 }
 
+function registerScheduleIpcHandlers(): void {
+  const scheduleIdSchema = z.string().min(1).max(80);
+  ipcMain.handle('orbit:schedule:listSchedules', () => localDb.listSchedules(currentScopeKey()));
+  ipcMain.handle('orbit:schedule:getDetail', (_e, rawId) =>
+    localDb.getScheduleDetail(currentScopeKey(), scheduleIdSchema.optional().parse(rawId)),
+  );
+  ipcMain.handle('orbit:schedule:createSchedule', (_e, raw) =>
+    localDb.createSchedule(currentScopeKey(), CreateScheduleInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:schedule:updateSchedule', (_e, raw) =>
+    localDb.updateSchedule(currentScopeKey(), UpdateScheduleInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:schedule:setActiveSchedule', (_e, rawId) =>
+    localDb.setActiveSchedule(currentScopeKey(), scheduleIdSchema.parse(rawId)),
+  );
+  ipcMain.handle('orbit:schedule:deleteSchedule', (_e, rawId) => {
+    localDb.deleteSchedule(currentScopeKey(), scheduleIdSchema.parse(rawId));
+  });
+  ipcMain.handle('orbit:schedule:clearCourses', (_e, rawId) => {
+    localDb.clearScheduleCourses(currentScopeKey(), scheduleIdSchema.parse(rawId));
+  });
+  ipcMain.handle('orbit:schedule:upsertCourse', (_e, raw) =>
+    localDb.upsertCourseWithMeetings(currentScopeKey(), UpsertCourseInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:schedule:deleteCourses', (_e, raw) => {
+    const payload = z
+      .object({
+        scheduleId: scheduleIdSchema,
+        courseIds: z.array(scheduleIdSchema).max(200),
+      })
+      .parse(raw);
+    localDb.deleteCourses(currentScopeKey(), payload.scheduleId, payload.courseIds);
+  });
+  ipcMain.handle('orbit:schedule:listTimetables', () => localDb.listTimetables(currentScopeKey()));
+  ipcMain.handle('orbit:schedule:saveTimetable', (_e, raw) =>
+    localDb.saveTimetable(currentScopeKey(), SaveTimetableInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:schedule:getImportState', () => swpuScheduleImporter.getState());
+  ipcMain.handle('orbit:schedule:openSwpuImport', (_e, raw) => {
+    const opts = z
+      .object({
+        networkMode: z.enum(['direct', 'system', 'webvpn']).optional(),
+        clearSession: z.boolean().optional(),
+      })
+      .optional()
+      .parse(raw);
+    return swpuScheduleImporter.openLoginWindow(opts);
+  });
+  ipcMain.handle('orbit:schedule:fetchSwpuSchedule', (_e, rawTerm) =>
+    swpuScheduleImporter.fetchSchedule(z.string().max(40).optional().parse(rawTerm)),
+  );
+  ipcMain.handle('orbit:schedule:closeSwpuImport', () => swpuScheduleImporter.close());
+  ipcMain.handle('orbit:schedule:applySwpuImport', (_e, raw) => {
+    const parsed = ApplySwpuImportInputSchema.parse(raw);
+    const detail = localDb.applySwpuImport(currentScopeKey(), parsed);
+    swpuScheduleImporter.close();
+    return detail;
+  });
+  ipcMain.handle('orbit:schedule:exportIcs', async (_e, rawId) => {
+    const id = scheduleIdSchema.parse(rawId);
+    const detail = localDb.getScheduleDetail(currentScopeKey(), id);
+    if (!detail) return { ok: false, message: '未找到指定课表' };
+    const safeFileName = `${detail.schedule.name.replace(/[\\/:*?"<>|]/g, '_') || 'orbit-schedule'}.ics`;
+    const win = windowManager.getMainWindow();
+    const picked = win
+      ? await dialog.showSaveDialog(win, {
+          title: '导出课程表为标准日历 (.ics)',
+          defaultPath: safeFileName,
+          filters: [{ name: 'iCalendar 日历文件', extensions: ['ics'] }],
+        })
+      : await dialog.showSaveDialog({
+          title: '导出课程表为标准日历 (.ics)',
+          defaultPath: safeFileName,
+          filters: [{ name: 'iCalendar 日历文件', extensions: ['ics'] }],
+        });
+    if (picked.canceled || !picked.filePath) {
+      return { ok: false, cancelled: true };
+    }
+    const icsText = generateScheduleIcs(detail);
+    fs.writeFileSync(picked.filePath, icsText, 'utf8');
+    return { ok: true, filePath: picked.filePath };
+  });
+  ipcMain.handle('orbit:schedule:exportShareJson', (_e, rawId) => {
+    const id = scheduleIdSchema.parse(rawId);
+    const detail = localDb.getScheduleDetail(currentScopeKey(), id);
+    if (!detail) return { ok: false, message: '未找到指定课表' };
+    const pkg = buildOrbitSharePackage(detail);
+    const json = JSON.stringify(pkg);
+    clipboard.writeText(json);
+    return { ok: true, json };
+  });
+  ipcMain.handle('orbit:schedule:importShareJson', (_e, rawJson) => {
+    const text = z.string().min(2).max(500_000).parse(rawJson);
+    try {
+      const parsed = OrbitSharePackageSchema.parse(JSON.parse(text));
+      const detail = localDb.importSharePackage(currentScopeKey(), parsed);
+      return { ok: true, detail };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? `分享内容格式无效：${err.message}` : '分享内容格式无效',
+      };
+    }
+  });
+
+  // ── 统一日历（自定义日历分组 + 日程 + 待办任务）IPC ──
+  const entityIdSchema = z.string().min(1).max(80);
+  ipcMain.handle('orbit:calendar:getSnapshot', () => localDb.getCalendarSnapshot(currentScopeKey()));
+  ipcMain.handle('orbit:calendar:saveCategory', (_e, raw) =>
+    localDb.saveCalendarCategory(currentScopeKey(), SaveCalendarCategoryInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:calendar:setCategoryVisible', (_e, raw) => {
+    const payload = z.object({ categoryId: entityIdSchema, visible: z.boolean() }).parse(raw);
+    localDb.setCalendarCategoryVisible(currentScopeKey(), payload.categoryId, payload.visible);
+  });
+  ipcMain.handle('orbit:calendar:deleteCategory', (_e, rawId) => {
+    localDb.deleteCalendarCategory(currentScopeKey(), entityIdSchema.parse(rawId));
+  });
+  ipcMain.handle('orbit:calendar:upsertEvent', (_e, raw) =>
+    localDb.upsertCalendarEvent(currentScopeKey(), UpsertCalendarEventInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:calendar:deleteEvent', (_e, rawId) => {
+    localDb.deleteCalendarEvent(currentScopeKey(), entityIdSchema.parse(rawId));
+  });
+  ipcMain.handle('orbit:calendar:upsertTask', (_e, raw) =>
+    localDb.upsertCalendarTask(currentScopeKey(), UpsertCalendarTaskInputSchema.parse(raw)),
+  );
+  ipcMain.handle('orbit:calendar:toggleTask', (_e, raw) => {
+    const payload = z.object({ taskId: entityIdSchema, completed: z.boolean() }).parse(raw);
+    return localDb.toggleCalendarTask(currentScopeKey(), payload.taskId, payload.completed);
+  });
+  ipcMain.handle('orbit:calendar:deleteTask', (_e, rawId) => {
+    localDb.deleteCalendarTask(currentScopeKey(), entityIdSchema.parse(rawId));
+  });
+
+  // ── 订阅日历（默认中国法定节假日 + 外部 .ics/webcal 订阅 + 本地 .ics 导入）──
+  const refreshSubscriptionCore = async (scope: string, subscriptionId: string) => {
+    const subs = localDb.listCalendarSubscriptions(scope);
+    const target = subs.find((s) => s.id === subscriptionId);
+    if (!target) throw new Error('订阅日历不存在');
+
+    if (target.kind === 'cn-holiday') {
+      try {
+        const synced = await syncCnHolidaysData();
+        localDb.replaceCalendarSubscriptionItems(scope, target.id, synced.entries, {
+          syncedAt: Date.now(),
+          error: null,
+        });
+        const updated =
+          localDb.listCalendarSubscriptions(scope).find((s) => s.id === target.id) ?? target;
+        return {
+          subscription: updated,
+          itemCount: synced.entries.length,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '拉取法定节假日数据失败';
+        localDb.markCalendarSubscriptionError(scope, target.id, message);
+        throw new Error(message);
+      }
+    }
+
+    try {
+      const fetched = await fetchIcsSubscription(target.url);
+      localDb.replaceCalendarSubscriptionItems(scope, target.id, fetched.entries, {
+        syncedAt: Date.now(),
+        error: null,
+      });
+      const updated =
+        localDb.listCalendarSubscriptions(scope).find((s) => s.id === target.id) ?? target;
+      return {
+        subscription: updated,
+        itemCount: fetched.entries.length,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '拉取订阅日历失败';
+      localDb.markCalendarSubscriptionError(scope, target.id, message);
+      throw new Error(message);
+    }
+  };
+
+  ipcMain.handle('orbit:calendar:saveSubscription', async (_e, raw) => {
+    const scope = currentScopeKey();
+    const input = SaveCalendarSubscriptionInputSchema.parse(raw);
+    const existing = input.id
+      ? localDb.listCalendarSubscriptions(scope).find((s) => s.id === input.id)
+      : undefined;
+
+    if (existing?.kind === 'cn-holiday') {
+      const saved = localDb.saveCalendarSubscription(scope, input);
+      const count = localDb
+        .listCalendarSubscriptionItems(scope)
+        .filter((i) => i.subscriptionId === saved.id).length;
+      return { subscription: saved, itemCount: count };
+    }
+
+    // 外部 .ics / webcal 订阅：先校验并拉取解析，成功后原子落库，避免存下失效订阅
+    const fetched = await fetchIcsSubscription(input.url);
+    const saved = localDb.saveCalendarSubscription(scope, {
+      ...input,
+      name: input.name.trim() || fetched.calendarName || '订阅日历',
+      url: fetched.normalizedUrl,
+    });
+    localDb.replaceCalendarSubscriptionItems(scope, saved.id, fetched.entries, {
+      syncedAt: Date.now(),
+      error: null,
+    });
+    const updated =
+      localDb.listCalendarSubscriptions(scope).find((s) => s.id === saved.id) ?? saved;
+    return {
+      subscription: updated,
+      itemCount: fetched.entries.length,
+    };
+  });
+
+  ipcMain.handle('orbit:calendar:refreshSubscription', async (_e, rawId) => {
+    return refreshSubscriptionCore(currentScopeKey(), entityIdSchema.parse(rawId));
+  });
+
+  ipcMain.handle('orbit:calendar:setSubscriptionVisible', (_e, raw) => {
+    const payload = z.object({ subscriptionId: entityIdSchema, visible: z.boolean() }).parse(raw);
+    localDb.setCalendarSubscriptionVisible(
+      currentScopeKey(),
+      payload.subscriptionId,
+      payload.visible,
+    );
+  });
+
+  ipcMain.handle('orbit:calendar:deleteSubscription', (_e, rawId) => {
+    localDb.deleteCalendarSubscription(currentScopeKey(), entityIdSchema.parse(rawId));
+  });
+
+  ipcMain.handle('orbit:calendar:importIcsFile', async (_e, raw) => {
+    const input = ImportIcsFileInputSchema.parse(raw ?? {});
+    const picked = await pickAndParseLocalIcsFile(windowManager.getMainWindow());
+    if (picked.canceled || !picked.entries) {
+      return { canceled: true };
+    }
+    const imported = localDb.importEntriesAsCalendarCategory(currentScopeKey(), {
+      name: input.name?.trim() || picked.calendarName || picked.fileName || '导入日历',
+      color: input.color,
+      entries: picked.entries,
+    });
+    return {
+      canceled: false,
+      category: imported.category,
+      importedCount: imported.importedCount,
+    };
+  });
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle('orbit:auth:getState', () => authService.getState());
   ipcMain.handle('orbit:auth:signInWithPassword', (_e, raw) =>
@@ -143,9 +418,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('orbit:auth:verifyMfa', (_e, raw) =>
     authService.verifyMfa(MfaVerifyInputSchema.parse(raw)),
   );
-  ipcMain.handle('orbit:auth:signInWithEmbeddedWindow', () =>
-    authService.signInWithEmbeddedWindow(windowManager.getMainWindow()),
+  ipcMain.handle('orbit:auth:signInWithEmbeddedWindow', (_e, raw) =>
+    authService.signInWithEmbeddedWindow(
+      windowManager.getMainWindow(),
+      ExternalSignInOptionsSchema.parse(raw),
+    ),
   );
+  ipcMain.handle('orbit:auth:cancelExternalSignIn', () => {
+    authService.cancelExternalSignIn();
+  });
   ipcMain.handle('orbit:auth:getApiToken', (_e, rawTarget) => {
     const target = z.enum(['punch', 'orbit']).parse(rawTarget);
     return authService.getApiToken(target);
@@ -180,6 +461,8 @@ function registerIpcHandlers(): void {
     const scope = currentScopeKey();
     const state = await authService.signOut();
     localDb.clearScope(scope);
+    approvedSwpuTlsCerts.clear();
+    await swpuScheduleImporter?.resetForSignOut();
     return state;
   });
 
@@ -208,6 +491,7 @@ function registerIpcHandlers(): void {
     localDb.listDocRecents(currentScopeKey(), z.string().optional().parse(rawQuery)),
   );
   registerBlogIpcHandlers();
+  registerScheduleIpcHandlers();
 
   ipcMain.handle('orbit:storage:getCache', (_e, rawKey) =>
     localDb.getCache(currentScopeKey(), z.string().min(1).max(120).parse(rawKey)),
@@ -296,6 +580,9 @@ function registerIpcHandlers(): void {
     return scanNearbyWifi(options);
   });
   ipcMain.handle('orbit:system:openLocationSettings', async () => {
+    if (process.platform === 'darwin') {
+      requestMacLocationPermission();
+    }
     const targetUrl =
       process.platform === 'win32'
         ? 'ms-settings:privacy-location'
@@ -630,6 +917,7 @@ function cleanupBeforeQuit(): void {
   };
   safe(() => windowManager?.markQuitting());
   safe(() => windowManager?.blog.destroy());
+  safe(() => swpuScheduleImporter?.destroy());
   safe(() => miniAppContainerManager?.destroyAll());
   safe(() => windowManager?.destroyFloatingBallWindow());
   safe(() => updater?.stopAutoCheck());
@@ -645,6 +933,70 @@ app.on('before-quit', () => {
 
 app.on('activate', () => {
   windowManager?.showMainWindow();
+});
+
+/** 本次会话中已由用户显式确认允许的教务非认证域名+证书指纹例外集合（登出/切号时自动清空）。 */
+const approvedSwpuTlsCerts = new Set<string>();
+/** 同 host+证书指纹的并发弹窗去重表，避免子资源并发触发证书错误时出现弹窗风暴。 */
+const pendingSwpuTlsPrompts = new Map<string, Promise<boolean>>();
+const SWPU_AUTH_HOST_RE = /^(?:sso|auth|ids|cas|login|vpn|webvpn)(?:[-.].*)?\.swpu\.edu\.cn$/i;
+
+// 严禁对统一身份认证域及 WebVPN 入口域（sso/vpn/webvpn.swpu.edu.cn 等）放行 TLS 证书错误；其余校内教务子域需按证书指纹显式确认
+app.on('certificate-error', (event, wc, url, error, cert, callback) => {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    const isSwpuSubdomain = host === 'swpu.edu.cn' || host.endsWith('.swpu.edu.cn');
+    if (swpuScheduleImporter?.ownsWebContents(wc) && isSwpuSubdomain) {
+      if (SWPU_AUTH_HOST_RE.test(host)) {
+        console.warn(`[orbit:tls] 拒绝放行认证/VPN 域名证书错误: host=${host} error=${error}`);
+        callback(false);
+        return;
+      }
+      const fingerprint = String(cert?.fingerprint ?? '').trim();
+      const certKey = fingerprint ? `${host}::${fingerprint}` : '';
+      if (certKey && approvedSwpuTlsCerts.has(certKey)) {
+        event.preventDefault();
+        callback(true);
+        return;
+      }
+      event.preventDefault();
+      const promptKey = certKey || `${host}::${error}`;
+      let promptPromise = pendingSwpuTlsPrompts.get(promptKey);
+      if (!promptPromise) {
+        const ownerWin = BrowserWindow.fromWebContents(wc) ?? windowManager?.getMainWindow();
+        const promptOpts: Electron.MessageBoxOptions = {
+          type: 'warning',
+          title: '教务站点证书校验异常',
+          message: `目标教务站点 ${host} 的 HTTPS 证书未通过系统校验（${error}）。`,
+          detail: `证书主体：${cert?.subjectName || '未知'}\n签发方：${cert?.issuerName || '未知'}\n指纹：${fingerprint || '未知'}\n若你在公共 Wi-Fi 下看到此提示，可能存在中间人劫持风险，建议取消连接。`,
+          buttons: ['取消连接（推荐）', '仅本次信任并继续'],
+          defaultId: 0,
+          cancelId: 0,
+        };
+        const ask = ownerWin
+          ? dialog.showMessageBox(ownerWin, promptOpts)
+          : dialog.showMessageBox(promptOpts);
+        promptPromise = ask
+          .then((res) => {
+            const approved = res.response === 1;
+            if (approved && certKey) {
+              approvedSwpuTlsCerts.add(certKey);
+            }
+            return approved;
+          })
+          .catch(() => false)
+          .finally(() => {
+            pendingSwpuTlsPrompts.delete(promptKey);
+          });
+        pendingSwpuTlsPrompts.set(promptKey, promptPromise);
+      }
+      void promptPromise.then((approved) => callback(approved));
+      return;
+    }
+  } catch {
+    // 忽略非法 URL
+  }
+  callback(false);
 });
 
 app.whenReady().then(async () => {
@@ -827,9 +1179,23 @@ app.whenReady().then(async () => {
     sendToMainWindow('orbit:hub:runtimeChanged', snapshot);
   });
 
+  swpuScheduleImporter = new SwpuScheduleImporter(
+    () => windowManager.getMainWindow(),
+    (state) => {
+      sendToMainWindow('orbit:schedule:importStateChanged', state);
+    },
+  );
+
   registerIpcHandlers();
 
+  let lastAuthSubject = authService.getState().profile?.subject ?? null;
   authService.onStateChanged((state) => {
+    const nextSubject = state.authenticated ? (state.profile?.subject ?? null) : null;
+    if (!state.authenticated || (lastAuthSubject && nextSubject && lastAuthSubject !== nextSubject)) {
+      approvedSwpuTlsCerts.clear();
+      void swpuScheduleImporter?.resetForSignOut();
+    }
+    lastAuthSubject = nextSubject;
     windowManager.onAuthSessionUpdated(state.authenticated);
     windowManager.updateFloatingPunchSummary({
       ...windowManager.getFloatingState(),

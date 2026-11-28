@@ -76,24 +76,42 @@ describe('LecPunch 融合模块核心规则与狂热时段判定', () => {
     expect(verifyMemberKey(key + 'x', 'test-secret')).toBeNull();
   });
 
-  it('卡池（21 张）与称号目录（11 项）定义完整无重复 ID', () => {
+  it('卡池（21 张）与称号目录（26 项）定义完整无重复 ID', () => {
     expect(CARD_CATALOG).toHaveLength(21);
     expect(new Set(CARD_CATALOG.map((c) => c.id)).size).toBe(21);
-    expect(TITLE_CATALOG).toHaveLength(11);
-    expect(new Set(TITLE_CATALOG.map((t) => t.id)).size).toBe(11);
-    expect(TITLE_CATALOG.map((t) => t.id)).toEqual([
+    expect(TITLE_CATALOG).toHaveLength(26);
+    expect(new Set(TITLE_CATALOG.map((t) => t.id)).size).toBe(26);
+    const ids = new Set(TITLE_CATALOG.map((t) => t.id));
+    for (const expectedId of [
       'punch-star',
       'monthly-perfect',
       'general-jin',
       'legend-allnighter',
       'weekly-perfect',
+      'good-student',
       'deadline-master',
       'lu-dongbin',
       'early-bird',
       'night-owl',
       'lovesick',
       'purple-egg',
-    ]);
+      'punch-god',
+      'mcgrady-time',
+      'contributor-king',
+      'collection-king',
+      'gamble-king',
+      'most-honest',
+      'dragon-king',
+      'almost-perfect',
+      'lancer-luck-e',
+      'card-collector',
+      'uneasy',
+      'quit-gambling',
+      'almost-gone',
+      'low-stamina',
+    ]) {
+      expect(ids.has(expectedId)).toBe(true);
+    }
   });
 
   it('称号引擎正确判定打卡之星、早起鸟、夜猫子、传奇耐通王与佩戴优先级', () => {

@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EconomyModule } from '../economy/economy.module.js';
+import { MemberBusySnapshotEntity } from '../calendar/entities/member-busy-snapshot.entity.js';
+import { OrbitMemberEntity } from '../roster/entities/orbit-member.entity.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { OrbitReleaseContributorEntity } from './entities/orbit-release-contributor.entity.js';
+import { PunchTitleAchievementEntity } from './entities/punch-title-achievement.entity.js';
+import { GitHubContributorSyncService } from './github-contributor-sync.service.js';
 import {
   PunchMemberEligibilityEntity,
   PunchNetworkPolicyEntity,
@@ -79,6 +84,10 @@ import { PunchShopController } from './punch-shop.controller.js';
       PunchTeamEventEntity,
       PunchTeamLedgerEntryEntity,
       PunchSkinUnlockEntity,
+      OrbitReleaseContributorEntity,
+      PunchTitleAchievementEntity,
+      MemberBusySnapshotEntity,
+      OrbitMemberEntity,
     ]),
   ],
   controllers: [
@@ -103,6 +112,7 @@ import { PunchShopController } from './punch-shop.controller.js';
     PunchAttendanceService,
     PunchStatsAssessmentService,
     PunchCardsService,
+    GitHubContributorSyncService,
     PunchTitlesService,
   ],
   exports: [

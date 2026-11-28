@@ -24,8 +24,12 @@ import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { useOrbitStore } from '@/stores/useOrbitStore';
 import styles from './PunchToday.module.css';
+import { dutyWeek, type DutySchedule } from '@shared/duty';
+import { orbitServerApi } from '@/services/orbitServerApi';
+import { dutyRefreshFailure } from '@/services/dutySync';
 
 const GlyphEmber = lazy(() => import('./GlyphEmber'));
+
 
 /** 跟随 Orbit 外观配置与系统深浅色解析当前生效主题，避免特效背景硬编码浅底。 */
 function useResolvedTheme(preference: 'system' | 'light' | 'dark'): 'light' | 'dark' {
@@ -62,6 +66,19 @@ export function PunchTodayPage(): JSX.Element {
   const setLoginModalOpen = useOrbitStore((s) => s.setLoginModalOpen);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [{ schedule, message: dutyMessage }, setDuty] = useState<{ schedule: DutySchedule | null; message: string }>({ schedule: null, message: '' });
+  useEffect(() => {
+    setDuty({ schedule: null, message: '' });
+    if (!auth.authenticated || !auth.isStudioMember) return;
+    let active = true;
+    const load = () => orbitServerApi.getDutySchedule().then(next => {
+      if (active) setDuty({ schedule: next, message: '' });
+    }).catch(error => { if (active) setDuty(prev => dutyRefreshFailure(prev.schedule, error)); });
+    void load();
+    const timer = window.setInterval(load, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [auth.authenticated, auth.isStudioMember, auth.profile?.subject]);
+  const duty = dutyWeek(nowMs, schedule);
   const [busy, setBusy] = useState(false);
   const [recheckingEnv, setRecheckingEnv] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamActiveMember | null>(null);
@@ -331,14 +348,17 @@ export function PunchTodayPage(): JSX.Element {
             </Button>
             {auth.authenticated &&
               networkStatus?.wifiFingerprintEnabled &&
-              !networkStatus.allowed && (
-                <span className={styles.envHint}>
-                  {networkStatus.scanError ||
-                    networkStatus.reason ||
-                    '请确认在工作室内并开启 Wi-Fi 开关（无需连接热点）'}
-                  {networkStatus.scanPermissionDenied && (
-                    <>
-                      {' '}
+              !networkStatus.allowed && (() => {
+                const hintText =
+                  networkStatus.scanError ||
+                  networkStatus.reason ||
+                  '请确认在工作室内并开启 Wi-Fi 开关（无需连接热点）';
+                return (
+                  <div className={styles.envHint}>
+                    <span className={styles.envHintText} title={hintText}>
+                      {hintText}
+                    </span>
+                    {networkStatus.scanPermissionDenied && (
                       <Button
                         variant="glass"
                         size="small"
@@ -346,10 +366,10 @@ export function PunchTodayPage(): JSX.Element {
                       >
                         打开系统定位设置
                       </Button>
-                    </>
-                  )}
-                </span>
-              )}
+                    )}
+                  </div>
+                );
+              })()}
           </div>
         </Card>
 
@@ -424,6 +444,17 @@ export function PunchTodayPage(): JSX.Element {
             ))}
           </div>
         )}
+      </Card>
+
+      <Card>
+        <div className={styles.dutyRow}>
+          <strong className={styles.sectionTitle}><IdCard size={16} /> 本周值日生</strong>
+          <span>{!auth.authenticated ? '登录后查看值日安排' : !auth.isStudioMember ? '仅工作室成员可查看'
+            : !schedule ? (dutyMessage || '正在读取排班…') : duty.index < 0 ? '本周暂未安排值日生'
+            : `第 ${duty.index + 1} 组 · ${schedule.groups[duty.index].join('、')}`}</span>
+          {auth.authenticated && auth.isStudioMember && schedule && dutyMessage && <small role="status">{dutyMessage}</small>}
+          <span className={styles.dutyDates}>{duty.dates}</span>
+        </div>
       </Card>
 
       {selectedMember && popoverPos && (

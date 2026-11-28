@@ -515,6 +515,15 @@ export function InboxPage(): JSX.Element {
     });
   }, [allNotifications, activeChannel, unreadOnly]);
 
+  // 预计算发版摘要映射，避免在长列表逐行渲染中重复执行 O(N) 全表回溯
+  const releaseDetailById = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof parseNotificationReleaseDetail>>();
+    for (const item of visibleNotifications) {
+      map.set(item.id, parseNotificationReleaseDetail(item, orbitNotifications));
+    }
+    return map;
+  }, [visibleNotifications, orbitNotifications]);
+
   const currentMeta =
     APP_CHANNELS.find((c) => c.id === activeChannel) ?? APP_CHANNELS[0]!;
   const overviewChannels = APP_CHANNELS.filter((c) => c.group === 'overview');
@@ -722,7 +731,7 @@ export function InboxPage(): JSX.Element {
               />
             </Card>
           ) : (
-            <Card className={styles.feedCard}>
+            <div className={styles.feedSurface}>
               <ul className={styles.list}>
                 {visibleNotifications.map((item) => {
                   const isDocRequest = item.eventType === 'doc.edit_request';
@@ -749,7 +758,9 @@ export function InboxPage(): JSX.Element {
                   const blogUrl = item.sourceApp === 'lec-blog' ? parseBlogUrl(item.payload?.postUrl ?? item.payload?.blogUrl) : null;
                   const authorId = typeof item.payload?.userId === 'string' ? item.payload.userId : '';
                   const visual = resolveSourceVisual(item.sourceApp);
-                  const release = parseNotificationReleaseDetail(item, orbitNotifications);
+                  const release =
+                    releaseDetailById.get(item.id) ??
+                    parseNotificationReleaseDetail(item, orbitNotifications);
                   const displayBody = release.commitTitle || item.body;
                   const requesterName =
                     typeof item.payload?.requesterName === 'string'
@@ -824,7 +835,9 @@ export function InboxPage(): JSX.Element {
                           <div className={styles.itemHead}>
                             <span className={styles.itemTitle}>{item.title}</span>
                             {activeChannel === 'ALL' && (
-                              <Tag tone="info">{sourceTagLabel(item.sourceApp)}</Tag>
+                              <span className={`${styles.liteTag} ${styles.liteTagInfo}`}>
+                                {sourceTagLabel(item.sourceApp)}
+                              </span>
                             )}
                             {roomLabel && <span className={styles.shaPill}>房间 {roomLabel}</span>}
                             {release.isRelease && release.shortSha && (
@@ -832,12 +845,20 @@ export function InboxPage(): JSX.Element {
                             )}
                             {!item.isRead && <span className={styles.unreadDot} title="未读" />}
                             {item.actionStatus === 'approved' && (
-                              <Tag tone="success">{isRoomInvite ? '已接受' : '已同意'}</Tag>
+                              <span className={`${styles.liteTag} ${styles.liteTagSuccess}`}>
+                                {isRoomInvite ? '已接受' : '已同意'}
+                              </span>
                             )}
                             {item.actionStatus === 'denied' && (
-                              <Tag tone="danger">{isRoomInvite ? '已婉拒' : '已拒绝'}</Tag>
+                              <span className={`${styles.liteTag} ${styles.liteTagDanger}`}>
+                                {isRoomInvite ? '已婉拒' : '已拒绝'}
+                              </span>
                             )}
-                            {item.actionStatus === 'expired' && <Tag tone="neutral">已过期</Tag>}
+                            {item.actionStatus === 'expired' && (
+                              <span className={`${styles.liteTag} ${styles.liteTagNeutral}`}>
+                                已过期
+                              </span>
+                            )}
                           </div>
                           <p className={styles.itemBody}>{displayBody}</p>
                           <div className={styles.itemMetaRow}>
@@ -894,19 +915,18 @@ export function InboxPage(): JSX.Element {
                           </>
                         )}
                         {isRoomInvite && item.actionStatus === 'approved' && (
-                          <Button
-                            variant="glass"
-                            size="small"
-                            icon={<Gamepad2 size={14} />}
-                            loading={busyActionId === `${item.id}:rejoin`}
+                          <button
+                            type="button"
+                            className={styles.liteActionBtn}
                             disabled={Boolean(busyActionId)}
                             onClick={() => {
                               setBusyActionId(`${item.id}:rejoin`);
                               void acceptHubRoomInvite(item).finally(() => setBusyActionId(null));
                             }}
                           >
-                            重新进房
-                          </Button>
+                            <Gamepad2 size={13} />
+                            <span>重新进房</span>
+                          </button>
                         )}
                         {isDocRequest && item.actionStatus === 'pending' && (
                           <>
@@ -934,39 +954,38 @@ export function InboxPage(): JSX.Element {
                           </>
                         )}
                         {pageUrl && (
-                          <Button
-                            variant="glass"
-                            size="small"
+                          <button
+                            type="button"
+                            className={styles.liteActionBtn}
                             onClick={() => setActiveTab('doc')}
                           >
-                            查看文档
-                          </Button>
+                            <span>查看文档</span>
+                          </button>
                         )}
                         {blogUrl && authorId.trim() && (
-                          <Button
-                            variant="glass"
-                            size="small"
-                            icon={<BookOpen size={14} />}
+                          <button
+                            type="button"
+                            className={styles.liteActionBtn}
                             onClick={() => openBlogTarget(authorId, blogUrl.href)}
                           >
-                            前往阅读
-                          </Button>
+                            <BookOpen size={13} />
+                            <span>前往阅读</span>
+                          </button>
                         )}
                         {release.isRelease && (
-                          <Button
-                            variant="glass"
-                            size="small"
-                            icon={<ChevronRight size={13} />}
+                          <button
+                            type="button"
+                            className={styles.liteActionBtn}
                             onClick={openNotifDetail}
                           >
-                            查看更新
-                          </Button>
+                            <ChevronRight size={13} />
+                            <span>查看更新</span>
+                          </button>
                         )}
                         {!item.isRead && !needsPendingAction && (
-                          <Button
-                            variant="glass"
-                            size="small"
-                            icon={<Check size={14} />}
+                          <button
+                            type="button"
+                            className={styles.liteActionBtn}
                             onClick={() => {
                               if (item.legacyPunch) {
                                 const rawId = String(item.payload?.legacyId ?? '');
@@ -976,15 +995,16 @@ export function InboxPage(): JSX.Element {
                               }
                             }}
                           >
-                            标为已读
-                          </Button>
+                            <Check size={13} />
+                            <span>标为已读</span>
+                          </button>
                         )}
                       </div>
                     </li>
                   );
                 })}
               </ul>
-            </Card>
+            </div>
           )}
         </div>
       </section>

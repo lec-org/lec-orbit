@@ -480,6 +480,107 @@
   color: var(--orbit-text-muted);
 }
 
+.tierRulesCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(10, 132, 255, 0.06));
+  border: 1px solid rgba(245, 158, 11, 0.24);
+}
+:global([data-theme='dark']) .tierRulesCard {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(56, 189, 248, 0.08));
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.tierRulesHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--orbit-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tierRulesTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tierRulesToggle {
+  display: inline-flex;
+  align-items: center;
+  color: var(--orbit-text-muted);
+}
+
+.tierLadderRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tierLadderChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--orbit-surface-strong);
+  border: 1px solid var(--orbit-border);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--orbit-text);
+  white-space: nowrap;
+}
+
+.tierLadderArrow {
+  font-size: 10px;
+  color: var(--orbit-text-muted);
+}
+
+.tierRuleStar {
+  color: #f59e0b;
+}
+
+.tierRuleMoon {
+  color: #ca8a04;
+}
+
+.tierRuleSun {
+  color: #ea580c;
+}
+
+.tierRuleCrown {
+  color: #d97706;
+}
+
+.tierRulesList {
+  margin: 0;
+  padding: 6px 0 0 16px;
+  border-top: 1px dashed var(--orbit-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--orbit-text-muted);
+}
+
+.tierRulesList strong {
+  color: var(--orbit-text);
+  font-weight: 600;
+}
+
 .titleCard {
   display: flex;
   flex-direction: column;
@@ -492,6 +593,38 @@
 
 .titleCardUnlocked {
   border-color: rgba(10, 132, 255, 0.22);
+}
+
+.titleCardHistory {
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+.titleTierBox {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--orbit-surface);
+  border: 1px solid var(--orbit-border);
+}
+
+.titleTierLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.titleTierSummary {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orbit-text);
+}
+
+.titleTierRule {
+  font-size: 10.5px;
+  color: var(--orbit-text-muted);
 }
 
 .titleCardEquipped {

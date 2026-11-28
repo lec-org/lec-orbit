@@ -8,6 +8,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { RosterModule } from './modules/roster/roster.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AnnouncementsModule } from './modules/announcements/announcements.module.js';
+import { StudioCalendarModule } from './modules/calendar/studio-calendar.module.js';
 import { MiniAppsModule } from './modules/miniapps/miniapps.module.js';
 import { EconomyModule } from './modules/economy/economy.module.js';
 import { PunchModule } from './modules/punch/punch.module.js';
@@ -38,6 +39,7 @@ class AppConfigModule {}
     RosterModule,
     NotificationsModule,
     AnnouncementsModule,
+    StudioCalendarModule,
     MiniAppsModule,
     EconomyModule,
     PunchModule,

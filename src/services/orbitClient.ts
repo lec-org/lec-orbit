@@ -7,6 +7,12 @@ import {
   type OrbitBridge,
   type OrbitConfig,
 } from '@shared/ipc';
+import {
+  DEFAULT_TIMETABLE_ID,
+  DEFAULT_TIMETABLE_NAME,
+  INITIAL_SWPU_IMPORT_STATE,
+  SWPU_CHENGDU_DEFAULT_SLOTS,
+} from '@shared/schedule';
 
 const fallbackConfig: OrbitConfig = OrbitConfigSchema.parse({});
 
@@ -44,11 +50,12 @@ const browserFallback: OrbitBridge = {
       message: '当前未连接到桌面主进程。',
       canFallbackWeb: false,
     }),
-    signInWithEmbeddedWindow: async () => ({
+    signInWithEmbeddedWindow: async (_options) => ({
       status: 'error',
-      message: '请通过 Electron 桌面端打开内置登录窗口。',
+      message: '请通过 Electron 桌面端打开浏览器快捷登录。',
       canFallbackWeb: false,
     }),
+    cancelExternalSignIn: async () => undefined,
     getApiToken: async () => null,
     pickAndUploadAvatar: async () => ({ ok: false, message: '请在桌面客户端中操作。' }),
     updateAvatarUrl: async () => ({ ok: false, message: '请在桌面客户端中操作。' }),
@@ -190,6 +197,130 @@ const browserFallback: OrbitBridge = {
     onRuntimeChanged: () => () => undefined,
     onToastRequested: () => () => undefined,
     dispatchRealtimeEvent: async () => undefined,
+  },
+  schedule: {
+    listSchedules: async () => [],
+    getDetail: async () => null,
+    createSchedule: async (input) => ({
+      id: 'browser-fallback',
+      name: input.name,
+      termCode: input.termCode ?? '',
+      timetableId: DEFAULT_TIMETABLE_ID,
+      startDate: input.startDate ?? '2026-08-31',
+      weekStartDay: input.weekStartDay ?? 1,
+      totalWeeks: input.totalWeeks ?? 20,
+      maxSections: input.maxSections ?? 12,
+      compactMode: false,
+      reminderEnabled: true,
+      reminderMinutes: 15,
+      holidays: [],
+      isActive: true,
+      courseCount: 0,
+      meetingCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+    updateSchedule: async () => null,
+    setActiveSchedule: async () => false,
+    deleteSchedule: async () => undefined,
+    clearCourses: async () => undefined,
+    upsertCourse: async () => {
+      throw new Error('课程表仅在 Electron 桌面端支持本地持久化。');
+    },
+    deleteCourses: async () => undefined,
+    listTimetables: async () => [
+      {
+        id: DEFAULT_TIMETABLE_ID,
+        name: DEFAULT_TIMETABLE_NAME,
+        fixedDurationEnabled: true,
+        defaultDurationMinutes: 45,
+        slots: SWPU_CHENGDU_DEFAULT_SLOTS,
+        updatedAt: 0,
+      },
+    ],
+    saveTimetable: async (input) => ({
+      id: input.id ?? DEFAULT_TIMETABLE_ID,
+      name: input.name,
+      fixedDurationEnabled: input.fixedDurationEnabled ?? true,
+      defaultDurationMinutes: input.defaultDurationMinutes ?? 45,
+      slots: input.slots,
+      updatedAt: Date.now(),
+    }),
+    getImportState: async () => INITIAL_SWPU_IMPORT_STATE,
+    openSwpuImport: async () => ({
+      ...INITIAL_SWPU_IMPORT_STATE,
+      stage: 'error',
+      error: '教务导入仅在 Electron 桌面客户端中可用。',
+    }),
+    fetchSwpuSchedule: async () => INITIAL_SWPU_IMPORT_STATE,
+    closeSwpuImport: async () => INITIAL_SWPU_IMPORT_STATE,
+    applySwpuImport: async () => {
+      throw new Error('教务导入仅在 Electron 桌面客户端中可用。');
+    },
+    exportIcs: async () => ({ ok: false, message: '请在桌面客户端中导出日历。' }),
+    exportShareJson: async () => ({ ok: false, message: '请在桌面客户端中导出分享。' }),
+    importShareJson: async () => ({ ok: false, message: '请在桌面客户端中导入分享。' }),
+    onImportStateChanged: () => () => undefined,
+  },
+  calendar: {
+    getSnapshot: async () => ({
+      categories: [],
+      events: [],
+      tasks: [],
+      subscriptions: [],
+      subscriptionItems: [],
+    }),
+    saveCategory: async (input) => ({
+      id: input.id ?? 'fallback-cal',
+      name: input.name,
+      color: input.color ?? '#2563EB',
+      visible: input.visible ?? true,
+      isBuiltin: false,
+      sortOrder: 0,
+      updatedAt: Date.now(),
+    }),
+    setCategoryVisible: async () => undefined,
+    deleteCategory: async () => undefined,
+    upsertEvent: async (input) => ({
+      id: input.id ?? 'fallback-evt',
+      calendarId: input.calendarId ?? 'cal_personal',
+      title: input.title,
+      description: input.description ?? '',
+      location: input.location ?? '',
+      allDay: input.allDay ?? false,
+      startDate: input.startDate,
+      endDate: input.endDate ?? input.startDate,
+      startTime: input.startTime ?? '09:00',
+      endTime: input.endTime ?? '10:00',
+      reminderMinutes: input.reminderMinutes ?? 15,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+    deleteEvent: async () => undefined,
+    upsertTask: async (input) => ({
+      id: input.id ?? 'fallback-tsk',
+      title: input.title,
+      description: input.description ?? '',
+      dueDate: input.dueDate ?? null,
+      dueTime: input.dueTime ?? null,
+      priority: input.priority ?? 'medium',
+      completed: input.completed ?? false,
+      completedAt: null,
+      reminderMinutes: input.reminderMinutes ?? 15,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+    toggleTask: async () => null,
+    deleteTask: async () => undefined,
+    saveSubscription: async () => {
+      throw new Error('订阅日历仅在 Electron 桌面客户端中可用。');
+    },
+    refreshSubscription: async () => {
+      throw new Error('订阅日历仅在 Electron 桌面客户端中可用。');
+    },
+    setSubscriptionVisible: async () => undefined,
+    deleteSubscription: async () => undefined,
+    importIcsFile: async () => ({ canceled: true }),
   },
 };
 

@@ -17,16 +17,28 @@ import {
   Award,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Coins,
+  Crown,
   FileText,
+  Info,
+  Moon,
   Sparkles,
+  Star,
+  Sun,
   Target,
   TrendingUp,
   X,
 } from 'lucide-react';
-import { formatReadableDuration, getCurrentIsoWeek } from '@shared/punch';
-import { TitleBadge, TitleBadgeList } from '@/components/TitleBadge';
+import {
+  computeTitleAchievementTier,
+  formatReadableDuration,
+  formatTitleTierText,
+  getCurrentIsoWeek,
+} from '@shared/punch';
+import { TitleBadge, TitleBadgeList, TitleTierIcons } from '@/components/TitleBadge';
 import { getOrbitClient } from '@/services/orbitClient';
 import { notifyToast } from '@/services/orbitToast';
 import { punchApi } from '@/services/punchApi';
@@ -60,12 +72,14 @@ export function PunchGrowthPage(): JSX.Element {
   const points = useOrbitStore((s) => s.points);
   const myTitles = useOrbitStore((s) => s.myTitles);
   const equipTitle = useOrbitStore((s) => s.equipTitle);
+  const setTitleVisibility = useOrbitStore((s) => s.setTitleVisibility);
   const segment = useOrbitStore((s) => s.growthSegment);
   const setSegment = useOrbitStore((s) => s.setGrowthSegment);
 
   const [drawer, setDrawer] = useState<GrowthDrawerKind>(null);
   const [recordFilterDate, setRecordFilterDate] = useState<string | null>(null);
   const [equippingId, setEquippingId] = useState<string | null>(null);
+  const [tierRulesOpen, setTierRulesOpen] = useState(true);
   const [month, setMonth] = useState(currentYearMonth);
   const [selectedDate, setSelectedDate] = useState(todayIso);
 
@@ -180,6 +194,8 @@ export function PunchGrowthPage(): JSX.Element {
       : 100;
   const remainingSeconds = Math.max(0, weekTargetSeconds - weekTotalSeconds);
   const unlockedTitleCount = myTitles?.catalog.filter((c) => c.unlocked).length ?? 0;
+  const everAchievedTitleCount =
+    myTitles?.catalog.filter((c) => c.unlocked || (c.unlockCount ?? 0) > 0).length ?? 0;
   const totalTitleCount = myTitles?.catalog.length ?? 0;
   const isTitleEligible = myTitles?.eligible !== false;
 
@@ -495,10 +511,15 @@ export function PunchGrowthPage(): JSX.Element {
                   variant="glass"
                   size="small"
                   loading={equippingId === '__auto__'}
+                  disabled={equippingId !== null && equippingId !== '__auto__'}
                   onClick={async () => {
+                    if (equippingId !== null) return;
                     setEquippingId('__auto__');
-                    await equipTitle(null);
-                    setEquippingId(null);
+                    try {
+                      await equipTitle(null);
+                    } finally {
+                      setEquippingId(null);
+                    }
                   }}
                 >
                   恢复自动
@@ -565,17 +586,91 @@ export function PunchGrowthPage(): JSX.Element {
                     <Sparkles size={13} />
                     <span>
                       {isTitleEligible
-                        ? `已解锁 ${unlockedTitleCount} / ${totalTitleCount} · 佩戴后会实时展示在工作室周榜中`
+                        ? `当前生效 ${unlockedTitleCount} / ${totalTitleCount} · 历史点亮 ${everAchievedTitleCount} 项 · 佩戴后实时展示在周榜`
                         : `共 ${totalTitleCount} 项工作室称号 · 当前届别仅作图鉴浏览（大一至大三可解锁佩戴）`}
                     </span>
                   </div>
+
+                  {/* 成就升阶规则说明卡（标准 5 进制：逢 5 进 1，星 → 月亮 → 太阳 → 皇冠） */}
+                  <section className={styles.tierRulesCard} aria-label="称号成就升阶规则">
+                    <button
+                      type="button"
+                      className={styles.tierRulesHead}
+                      onClick={() => setTierRulesOpen((v) => !v)}
+                      aria-expanded={tierRulesOpen}
+                    >
+                      <span className={styles.tierRulesTitle}>
+                        <Info size={13} />
+                        <span>成就升阶规则详情（逢 5 进 1）</span>
+                      </span>
+                      <span className={styles.tierRulesToggle}>
+                        {tierRulesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </span>
+                    </button>
+                    <div className={styles.tierLadderRow}>
+                      <span className={styles.tierLadderChip}>第 1 次 · 解锁</span>
+                      <span className={styles.tierLadderArrow}>→</span>
+                      <span className={styles.tierLadderChip}>
+                        <Star size={11} className={styles.tierRuleStar} fill="currentColor" />
+                        1–4 星（2–5 次）
+                      </span>
+                      <span className={styles.tierLadderArrow}>→</span>
+                      <span className={styles.tierLadderChip}>
+                        <Moon size={11} className={styles.tierRuleMoon} fill="currentColor" />
+                        1 月亮（6 次）
+                      </span>
+                      <span className={styles.tierLadderArrow}>→</span>
+                      <span className={styles.tierLadderChip}>
+                        <Sun size={11} className={styles.tierRuleSun} fill="currentColor" />
+                        1 太阳（26 次）
+                      </span>
+                      <span className={styles.tierLadderArrow}>→</span>
+                      <span className={styles.tierLadderChip}>
+                        <Crown size={11} className={styles.tierRuleCrown} fill="currentColor" />
+                        1 皇冠（126 次）
+                      </span>
+                    </div>
+                    {tierRulesOpen && (
+                      <ul className={styles.tierRulesList}>
+                        <li>
+                          <strong>进位方式（5 进制 · 逢 5 进 1）：</strong>
+                          达成 1 次解锁基础成就，第 2 次升为 1 星；每累计 5 颗同级图标自动进位（5 ⭐ = 1 🌙 月亮，5 🌙 = 1 ☀️ 太阳，5 ☀️ = 1 👑 皇冠）。
+                        </li>
+                        <li>
+                          <strong>适用范围：</strong>
+                          24 项周期 / 连胜 / 连续天数 / 事件称号均支持无限累计升阶；仅「收集者」「收集之王」为一次性图鉴里程碑。
+                        </li>
+                        <li>
+                          <strong>防刷去重口径：</strong>
+                          周/月类按考核周或自然月去重（每周期最多 +1）；连续 3 天类按不重叠 3 天段累计；赌王/戒赌按独立 5 连胜/5 连败轮次累计；大保底按每次抽卡回执累计；贡献王按连续 3 次正式发版 PR 轮次累计。
+                        </li>
+                        <li>
+                          <strong>强制状态称号：</strong>
+                          「求求你戒赌吧」「想吃紫蛋了」「相思了」「快思了」「体力不支」触发时强制亮牌并附带当前阶位；解除条件后撤下亮牌，但历史累计次数与阶位永久保留在图鉴中，下次触发直接延续升阶。
+                        </li>
+                      </ul>
+                    )}
+                  </section>
+
                   {myTitles.catalog.map((item) => {
                     const isBusy = equippingId === item.id;
+                    const unlockCount = item.unlockCount ?? (item.unlocked ? 1 : 0);
+                    const stackable = item.stackable !== false;
+                    const tier = computeTitleAchievementTier(unlockCount, stackable);
+                    const hasHistory = unlockCount > 0;
+                    const remainingToNextMajor =
+                      stackable && tier.nextMajorTierCount !== null
+                        ? Math.max(0, tier.nextMajorTierCount - unlockCount)
+                        : null;
                     return (
                       <div
                         key={item.id}
                         className={`${styles.titleCard} ${
-                          item.unlocked ? styles.titleCardUnlocked : ''
+                          item.unlocked
+                            ? styles.titleCardUnlocked
+                            : hasHistory
+                              ? styles.titleCardHistory
+                              : ''
                         } ${item.equipped ? styles.titleCardEquipped : ''}`}
                       >
                         <div className={styles.titleCardTop}>
@@ -587,36 +682,91 @@ export function PunchGrowthPage(): JSX.Element {
                           <span className={styles.proposerTag}>提出：{item.proposer}</span>
                         </div>
                         <p className={styles.titleDesc}>{item.description}</p>
+                        <div className={styles.titleTierBox}>
+                          {!stackable ? (
+                            <span className={styles.titleTierSummary}>
+                              一次性里程碑{hasHistory ? ' · 已永久点亮' : ''}
+                            </span>
+                          ) : hasHistory ? (
+                            <div className={styles.titleTierLine}>
+                              {tier.points > 0 && (
+                                <TitleTierIcons count={unlockCount} stackable mode="full" size={12} />
+                              )}
+                              <span className={styles.titleTierSummary}>
+                                {tier.points > 0 ? `${formatTitleTierText(tier)} · ` : '基础解锁 · '}
+                                累计 {unlockCount} 次
+                                {remainingToNextMajor && tier.nextMajorTierLabel
+                                  ? `（再达成 ${remainingToNextMajor} 次升 ${tier.nextMajorTierLabel}）`
+                                  : ''}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className={styles.titleTierRule}>
+                              可升阶 · 尚未达成
+                            </span>
+                          )}
+                          {item.stackRuleText && (
+                            <span className={styles.titleTierRule}>{item.stackRuleText}</span>
+                          )}
+                        </div>
                         <div className={styles.titleCardFooter}>
                           <span className={styles.titleProgress}>
                             {item.progressText || (item.unlocked ? '已解锁' : '未解锁')}
                           </span>
-                          {!isTitleEligible ? (
-                            <Tag tone="neutral">{item.forced ? '状态类' : '荣誉图鉴'}</Tag>
-                          ) : item.forced ? (
-                            <Tag tone={item.unlocked ? 'warning' : 'neutral'}>
-                              {item.unlocked ? '自动亮牌中' : '状态预警'}
-                            </Tag>
-                          ) : item.equipped ? (
-                            <Tag tone="success" icon={<Check size={12} />}>
-                              佩戴中
-                            </Tag>
-                          ) : item.unlocked ? (
-                            <Button
-                              variant="filled"
-                              size="small"
-                              loading={isBusy}
-                              onClick={async () => {
-                                setEquippingId(item.id);
-                                await equipTitle(item.id);
-                                setEquippingId(null);
-                              }}
-                            >
-                              佩戴
-                            </Button>
-                          ) : (
-                            <Tag tone="neutral">未解锁</Tag>
-                          )}
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {isTitleEligible && item.unlocked && item.hideable && (
+                              <Button
+                                variant="glass"
+                                size="small"
+                                loading={equippingId === `vis:${item.id}`}
+                                disabled={equippingId !== null && equippingId !== `vis:${item.id}`}
+                                onClick={async () => {
+                                  if (equippingId !== null) return;
+                                  setEquippingId(`vis:${item.id}`);
+                                  try {
+                                    await setTitleVisibility(item.id, !item.hidden);
+                                  } finally {
+                                    setEquippingId(null);
+                                  }
+                                }}
+                              >
+                                {item.hidden ? '开启展示' : '关闭展示'}
+                              </Button>
+                            )}
+                            {!isTitleEligible ? (
+                              <Tag tone="neutral">{item.forced ? '状态类' : '荣誉图鉴'}</Tag>
+                            ) : item.hidden && item.unlocked ? (
+                              <Tag tone="neutral">已关闭</Tag>
+                            ) : item.forced ? (
+                              <Tag tone={item.unlocked ? 'warning' : 'neutral'}>
+                                {item.unlocked ? '自动亮牌中' : '状态预警'}
+                              </Tag>
+                            ) : item.equipped ? (
+                              <Tag tone="success" icon={<Check size={12} />}>
+                                佩戴中
+                              </Tag>
+                            ) : item.unlocked ? (
+                              <Button
+                                variant="filled"
+                                size="small"
+                                loading={isBusy}
+                                disabled={equippingId !== null && !isBusy}
+                                onClick={async () => {
+                                  if (equippingId !== null) return;
+                                  setEquippingId(item.id);
+                                  try {
+                                    await equipTitle(item.id);
+                                  } finally {
+                                    setEquippingId(null);
+                                  }
+                                }}
+                              >
+                                佩戴
+                              </Button>
+                            ) : (
+                              <Tag tone="neutral">未解锁</Tag>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

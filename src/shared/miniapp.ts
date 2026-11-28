@@ -333,6 +333,7 @@ export interface MiniAppCatalogItem {
   latestVersion?: MiniAppVersionItem | null;
   pendingVersion?: MiniAppVersionItem | null;
   recoveryVersion?: MiniAppVersionItem;
+  canDeleteGame?: boolean;
   createdAt: string;
   updatedAt: string;
 }
