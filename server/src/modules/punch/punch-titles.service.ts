@@ -766,7 +766,7 @@ export class PunchTitlesService {
         : Promise.resolve([] as OrbitMemberEntity[]),
       this.githubContributorSync.listReleaseContributors(),
       this.achievementRepo.find({
-        where: { teamId },
+        where: { teamId, userId: In(members.map((m) => m.id)) },
         select: { userId: true, titleId: true, occurrenceKey: true },
       }),
     ]);

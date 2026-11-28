@@ -10,6 +10,7 @@ import {
   formatTitleTierText,
 } from '../src/modules/punch/punch-title-catalog.js';
 import {
+  addShanghaiDays,
   evaluateTeamTitles,
   extractCardInteractionsFromReceipt,
   extractGambleEventFromReceipt,
@@ -914,7 +915,7 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
       [
         'u_tier',
         new Map<string, Set<string>>([
-          // 历史上已挂过 5 周紫蛋（加上本次上周未达标 week:2026-09-07 共 6 次 -> 5 星）
+          // 历史上已挂过 5 周紫蛋（加上本次上周未达标 week:2026-09-07 共 6 次 -> 1 月亮）
           [
             'purple-egg',
             new Set([
@@ -989,5 +990,94 @@ describe('Orbit 扩展称号系统（15 个新增称号 + 课表联动与兜底�
     // 全目录 26 项中恰有 24 项可升阶、2 项一次性
     expect(TITLE_CATALOG.filter((t) => t.stackable).length).toBe(24);
     expect(TITLE_CATALOG.filter((t) => !t.stackable).length).toBe(2);
+  });
+
+  test('PR #16 回归：连续 3 天类称号跨月滑动窗口相位偏移不双倍刷阶，且感到不安本周瞬时落差不落库', () => {
+    // 1. 复现 10-02 至 12-01 跨 31 天大月滑动窗口（11 月窗口从 09-30 起，12 月窗口跳至 10-31 起）
+    const makeRange = (startDay: string, endDay: string): Set<string> => {
+      const set = new Set<string>();
+      let cur = startDay;
+      while (cur <= endDay) {
+        set.add(cur);
+        cur = addShanghaiDays(cur, 1);
+      }
+      return set;
+    };
+
+    // 11 月末（窗口内包含 10-02..11-30，共 60 天 = 20 段不重叠 3 天）
+    const novWindowDays = makeRange('2026-10-02', '2026-11-30');
+    const novKeys = extractNonOverlappingStreakKeys(novWindowDays, 3);
+    expect(novKeys.length).toBe(20);
+    expect(novKeys[novKeys.length - 1]).toBe('streak:2026-11-30');
+
+    // 12 月 1 日窗口起点跳至 10-31（10-02..10-30 跌出窗口），带入已持久化的 novKeys 后绝不产生任何重切分键
+    const persisted = new Set(novKeys);
+    const dec1WindowDays = makeRange('2026-10-31', '2026-12-01');
+    expect(extractNonOverlappingStreakKeys(dec1WindowDays, 3, persisted)).toEqual([]);
+
+    // 12 月 2 日仍不足新一段 3 天 -> 仍为空
+    const dec2WindowDays = makeRange('2026-10-31', '2026-12-02');
+    expect(extractNonOverlappingStreakKeys(dec2WindowDays, 3, persisted)).toEqual([]);
+
+    // 12 月 3 日（12-01, 12-02, 12-03）凑齐全新 3 天段 -> 仅产出唯一的 streak:2026-12-03
+    const dec3WindowDays = makeRange('2026-10-31', '2026-12-03');
+    expect(extractNonOverlappingStreakKeys(dec3WindowDays, 3, persisted)).toEqual([
+      'streak:2026-12-03',
+    ]);
+
+    // 2. 「感到不安」周一瞬时差距仅保留本周实时亮牌提示，绝不写入永久成就表；仅上周结算落后 >5h 才落库 +1
+    const mondayNow = new Date(shanghaiDayStartMs('2026-09-14', 18, 0));
+    const res = evaluateTeamTitles({
+      now: mondayNow,
+      members: [
+        { id: 'u_lead', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u_monday_gap', enrollYear: 2025, createdAt: oldCreatedAt },
+        { id: 'u_prev_gap', enrollYear: 2025, createdAt: oldCreatedAt },
+      ],
+      sessions: [
+        // 本周一（curWeekKey=2026-09-14）：u_lead 打满 6h（分 2 场避免超 5h 单次上限），u_monday_gap 仅打 30m（落后 5.5h > 5h）
+        makeSession('u_lead', '2026-09-14', curWeekKey, 8, 0, 180),
+        makeSession('u_lead', '2026-09-14', curWeekKey, 13, 0, 180),
+        makeSession('u_monday_gap', '2026-09-14', curWeekKey, 10, 0, 30),
+        // 上周（prevWeekKey=2026-09-07）：u_lead 20h，u_monday_gap 18h（仅差 2h <= 5h），u_prev_gap 10h（落后 8h > 5h）
+        makeSession('u_lead', '2026-09-07', prevWeekKey, 9, 0, 240),
+        makeSession('u_lead', '2026-09-08', prevWeekKey, 9, 0, 240),
+        makeSession('u_lead', '2026-09-09', prevWeekKey, 9, 0, 240),
+        makeSession('u_lead', '2026-09-10', prevWeekKey, 9, 0, 240),
+        makeSession('u_lead', '2026-09-11', prevWeekKey, 9, 0, 240),
+        makeSession('u_monday_gap', '2026-09-07', prevWeekKey, 9, 0, 240),
+        makeSession('u_monday_gap', '2026-09-08', prevWeekKey, 9, 0, 240),
+        makeSession('u_monday_gap', '2026-09-09', prevWeekKey, 9, 0, 240),
+        makeSession('u_monday_gap', '2026-09-10', prevWeekKey, 9, 0, 240),
+        makeSession('u_monday_gap', '2026-09-11', prevWeekKey, 9, 0, 120),
+        makeSession('u_prev_gap', '2026-09-07', prevWeekKey, 9, 0, 240),
+        makeSession('u_prev_gap', '2026-09-08', prevWeekKey, 9, 0, 240),
+        makeSession('u_prev_gap', '2026-09-09', prevWeekKey, 9, 0, 120),
+      ],
+      manualAdjustmentsByUserWeek: new Map(),
+      entertainmentByUserWeek: new Map(),
+      currentWeekCardInteractions: [],
+      existingAchievementKeysByUser: new Map([
+        ['u_monday_gap', new Map([['uneasy', new Set(['week:2026-08-24', 'week:2026-08-31'])]])],
+      ]),
+    });
+
+    // u_monday_gap 本周瞬时落后 5.5h：实时亮牌生效，但不写入 newAchievementRecords，且历史次数维持 2（不虚增为 3）
+    const mondayEval = res.get('u_monday_gap')!;
+    const mondayUneasy = mondayEval.catalog.find((c) => c.id === 'uneasy')!;
+    expect(mondayUneasy.unlocked).toBe(true);
+    expect(mondayUneasy.unlockCount).toBe(2);
+    expect(mondayEval.newAchievementRecords.some((r) => r.titleId === 'uneasy')).toBe(false);
+
+    // u_prev_gap 上周结算落后 8h：正常写入 week:2026-09-07 并永久累计
+    const prevEval = res.get('u_prev_gap')!;
+    const prevUneasy = prevEval.catalog.find((c) => c.id === 'uneasy')!;
+    expect(prevUneasy.unlocked).toBe(true);
+    expect(prevUneasy.unlockCount).toBe(1);
+    expect(
+      prevEval.newAchievementRecords.some(
+        (r) => r.titleId === 'uneasy' && r.occurrenceKey === `week:${prevWeekKey}`,
+      ),
+    ).toBe(true);
   });
 });

@@ -383,18 +383,43 @@ function bestRecentConsecutiveStreak(
   return { qualified3, currentStreak };
 }
 
+const STREAK_OCCURRENCE_KEY_RE = /^streak:(\d{4}-\d{2}-\d{2})$/;
+
 /**
  * 纯函数：从满足条件的上海自然日集合中提取不重叠的连续 minLen 天轮次幂等键（streak:<段末日期>）。
  * 例如连续 7 天（day1..day7）且 minLen=3 时，拆分为 [day1..day3] 与 [day4..day6] 两段，
  * 返回 ['streak:day3', 'streak:day6']，保证每日增量扫描绝不重复计数。
+ * 若传入该称号已持久化的 existingKeys，会先标记已兑换段覆盖的自然日区间 [endDay-(minLen-1), endDay]，
+ * 扫描时遇到已兑换日期直接重置连续计数，彻底避免跨月滑动窗口切换造成相位偏移并双倍刷阶。
  */
-export function extractNonOverlappingStreakKeys(days: Set<string>, minLen = 3): string[] {
+export function extractNonOverlappingStreakKeys(
+  days: Set<string>,
+  minLen = 3,
+  existingKeys?: ReadonlySet<string>,
+): string[] {
   if (days.size < minLen || minLen <= 0) return [];
+  const consumedDays = new Set<string>();
+  if (existingKeys && existingKeys.size > 0) {
+    for (const key of existingKeys) {
+      const m = STREAK_OCCURRENCE_KEY_RE.exec(key);
+      if (!m) continue;
+      const endDay = m[1]!;
+      for (let offset = 0; offset < minLen; offset += 1) {
+        consumedDays.add(addShanghaiDays(endDay, -offset));
+      }
+    }
+  }
+
   const sorted = [...days].sort();
   const keys: string[] = [];
   let runLen = 0;
   let prevDay: string | null = null;
   for (const day of sorted) {
+    if (consumedDays.has(day)) {
+      runLen = 0;
+      prevDay = null;
+      continue;
+    }
     if (prevDay && addShanghaiDays(prevDay, 1) === day) {
       runLen += 1;
     } else {
@@ -405,6 +430,7 @@ export function extractNonOverlappingStreakKeys(days: Set<string>, minLen = 3): 
       keys.push(`streak:${day}`);
       // 达成一段完整轮次后归零，确保后续连续天数按独立非重叠段计算
       runLen = 0;
+      prevDay = null;
     }
   }
   return keys;
@@ -1479,6 +1505,7 @@ export function evaluateTeamTitles(
 
     const curMonthKey = `${nowParts.year}-${pad2(nowParts.month)}`;
     const prevMonthKey = `${prevYear}-${pad2(prevMonth)}`;
+    const memberExistingByTitle = input.existingAchievementKeysByUser?.get(member.id);
 
     // 为全部 26 项称号提取本次评估窗口内命中的幂等达成键（用于 5 进制逢 5 进 1 升阶计数）
     const detectedKeysByTitleId: Record<string, string[]> = {
@@ -1486,7 +1513,11 @@ export function evaluateTeamTitles(
         ...(curWeekRecorded > FIFTY_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),
         ...(prev1Recorded > FIFTY_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : []),
       ],
-      'punch-star': extractNonOverlappingStreakKeys(topGradeDays, 3),
+      'punch-star': extractNonOverlappingStreakKeys(
+        topGradeDays,
+        3,
+        memberExistingByTitle?.get('punch-star'),
+      ),
       'mcgrady-time': [
         ...(curWeekRecorded >= THIRTY_FIVE_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),
         ...(prev1Recorded >= THIRTY_FIVE_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : []),
@@ -1501,7 +1532,11 @@ export function evaluateTeamTitles(
         ...(curWeekDaysOver5h >= 7 ? [`week:${currentWeekKey}`] : []),
         ...(prevWeekDaysOver5h >= 7 ? [`week:${prevWeek1Key}`] : []),
       ],
-      'legend-allnighter': extractNonOverlappingStreakKeys(allNighterDays, 3),
+      'legend-allnighter': extractNonOverlappingStreakKeys(
+        allNighterDays,
+        3,
+        memberExistingByTitle?.get('legend-allnighter'),
+      ),
       'gamble-king': gambleWinStreakKeys,
       'most-honest': [
         ...(curClassEval.honestQualified ? [`week:${currentWeekKey}`] : []),
@@ -1522,13 +1557,19 @@ export function evaluateTeamTitles(
           : input.ssrPityUsers?.has(member.id)
             ? ['ssr-pity:legacy']
             : [],
-      'early-bird': extractNonOverlappingStreakKeys(metrics.earlyBirdDays, 3),
-      'night-owl': extractNonOverlappingStreakKeys(metrics.nightOwlDays, 3),
+      'early-bird': extractNonOverlappingStreakKeys(
+        metrics.earlyBirdDays,
+        3,
+        memberExistingByTitle?.get('early-bird'),
+      ),
+      'night-owl': extractNonOverlappingStreakKeys(
+        metrics.nightOwlDays,
+        3,
+        memberExistingByTitle?.get('night-owl'),
+      ),
       'card-collector': cardCollectorUnlocked ? ['once'] : [],
-      uneasy: [
-        ...(curRankGapSec > FIVE_HOURS_SECONDS ? [`week:${currentWeekKey}`] : []),
-        ...(prevRankGapSec > FIVE_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : []),
-      ],
+      // 感到不安保留本周实时亮牌提示，但永久成就累计仅按已结算的上周记账，避免周一瞬时落差全员误 +1
+      uneasy: prevRankGapSec > FIVE_HOURS_SECONDS ? [`week:${prevWeek1Key}`] : [],
       'quit-gambling': gambleLoseStreakKeys,
       lovesick: lovesickActive ? [`week:${currentWeekKey}`] : [],
       'almost-gone': almostGoneActive ? [`week:${prevWeek1Key}`] : [],
@@ -1536,7 +1577,6 @@ export function evaluateTeamTitles(
       'purple-egg': purpleEggActive ? [`week:${prevWeek1Key}`] : [],
     };
 
-    const memberExistingByTitle = input.existingAchievementKeysByUser?.get(member.id);
     const newAchievementRecords: NewTitleAchievementRecord[] = [];
     const statusWithCounts: Record<
       string,

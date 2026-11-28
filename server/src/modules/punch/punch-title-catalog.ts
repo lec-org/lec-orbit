@@ -481,7 +481,7 @@ export const TITLE_CATALOG: TitleDefinition[] = [
     category: 'fun',
     forced: false,
     stackable: true,
-    stackRuleText: '按考核周累计（每周最多 +1）',
+    stackRuleText: '按考核周结算累计（每周最多 +1）',
     icon: 'alert-triangle',
     theme: 'rose',
     priority: 62,
